@@ -182,7 +182,7 @@ h1 { color: #22283a; letter-spacing: -.055em; }
   .library-toolbar { align-items: stretch; flex-wrap: wrap; }
   .library-toolbar > input { flex: 1 1 100%; }
   .content-row { align-items: flex-start; flex-direction: column; gap: 13px; padding: 15px; }
-  .ai-cost-info { right: 0; left: auto; }
+  .ai-cost-info { right: auto; left: 0; }
   .content-actions { width: 100%; justify-content: flex-start; border-top: 1px solid #f0f0f4; padding-top: 10px; }
   .content-preview { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .excel-options { grid-template-columns: 1fr; }

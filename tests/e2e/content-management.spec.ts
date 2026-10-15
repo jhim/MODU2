@@ -16,7 +16,8 @@ test('opens the paginated library and previews imported text before login-gated 
   await row.getByRole('button', { name: 'Excel', exact: true }).click();
   expect((await download).suggestedFilename()).toContain('.xlsx');
 
-  await page.getByRole('button', { name: '+ 새 콘텐츠 만들기' }).click();
+  await page.getByRole('button', { name: '만들기', exact: true }).click();
+  await page.getByRole('button', { name: '사진 · TXT · Excel · 붙여넣기' }).click();
   await page.getByRole('textbox', { name: /또는 텍스트 붙여넣기/ }).fill('key_text\tvalue_1\tvalue_2\napple\t사과\t과일\nbook\t책\t도서');
   await page.getByRole('textbox', { name: '콘텐츠 제목' }).fill('과일과 책');
   await page.getByRole('button', { name: '카드 미리보기' }).click();

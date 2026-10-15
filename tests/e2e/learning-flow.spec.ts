@@ -121,8 +121,13 @@ test('shows recorded AI usage and leaves older content without usage blank', asy
     expect(infoBox).not.toBeNull();
     expect(infoBox!.x).toBeGreaterThanOrEqual(0);
     expect(infoBox!.x + infoBox!.width).toBeLessThanOrEqual(viewport.width);
-    await usageButton.click();
-    await expect(usageInfo).toBeHidden();
+    if (viewport.width === 1365) {
+      await page.getByRole('heading', { name: '학습 콘텐츠 목록' }).click();
+      await expect(usageInfo).toBeHidden();
+    } else {
+      await usageButton.click();
+      await expect(usageInfo).toBeHidden();
+    }
   }
   const legacy = page.locator('.content-row').filter({ hasText: '기존 사용량 미기록 콘텐츠' }).locator('.content-meta');
   await expect(legacy).not.toContainText('크레딧');

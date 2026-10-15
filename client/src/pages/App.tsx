@@ -238,9 +238,11 @@ export default function App() {
       <h1>학습 카드를 만들고 있어요</h1><p>{originalRequest}에서 시작해<br />꼭 필요한 내용 10개를 정리하고 있어요.</p>
       <div className="progress-track"><span /></div><small>잠시만 기다려 주세요</small></main>}
 
-    {screen === 'library' && <main className="library main-width">
+    {screen === 'library' && <main className="library main-width" onClick={event => {
+      if (!(event.target as HTMLElement).closest('.ai-cost-wrap')) setOpenUsageInfoId(null);
+    }}>
       <div className="library-heading"><div><div className="step-label"><span>LEARNING LIBRARY</span> 공개 자료와 내 콘텐츠</div><h1>학습 콘텐츠 목록</h1>
-        <p>다시 학습하거나 카드 내용을 수정할 수 있어요.</p></div><Button onClick={openNewImport}>+ 새 콘텐츠 만들기</Button></div>
+        <p>다시 학습하거나 카드 내용을 수정할 수 있어요.</p></div></div>
       <div className="library-toolbar"><Input value={listQuery} onChange={event => { setListQuery(event.target.value); setListPage(1); }} placeholder="제목이나 카드 내용 검색" aria-label="학습 콘텐츠 검색" />
         <select value={listSort} onChange={event => { setListSort(event.target.value as 'newest' | 'name'); setListPage(1); }} aria-label="정렬">
           <option value="newest">최신순</option><option value="name">이름순</option></select>
@@ -255,7 +257,7 @@ export default function App() {
             <span className="source-chip">{item.source_mode === 'PHOTO' ? '사진' : item.source_mode === 'TEXT' ? 'TXT' : item.source_mode === 'EXCEL' ? 'Excel' : 'AI'}</span>
             <button className="content-title" onClick={() => void openSet(item.id)}>{item.title}</button><span className="content-meta">
               {item.card_count}개 카드 · 생성 {new Date(item.created_at).toLocaleDateString('ko-KR')} · 수정 {new Date(item.updated_at ?? item.created_at).toLocaleDateString('ko-KR')}
-              {item.ai_usage && typeof item.ai_usage.total_tokens === 'number' && Number.isFinite(item.ai_usage.total_tokens) && <span className="ai-cost-wrap">
+              {item.ai_usage && typeof item.ai_usage.total_tokens === 'number' && Number.isFinite(item.ai_usage.total_tokens) && <><br /><span className="ai-cost-wrap">
                 <button type="button" className="ai-cost" aria-expanded={openUsageInfoId === item.id} aria-controls={`ai-cost-info-${item.id}`}
                   title={`입력 ${item.ai_usage.input_tokens?.toLocaleString() ?? '—'} · 출력 ${item.ai_usage.output_tokens?.toLocaleString() ?? '—'} · 총 ${item.ai_usage.total_tokens.toLocaleString()} tokens\n예상 비용 $${item.ai_usage.estimated_usd?.toLocaleString('en-US', { maximumFractionDigits: 8 }) ?? '미등록'} · 약 ${item.ai_usage.estimated_krw?.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) ?? '미등록'}원\n모델 단가 및 적용 환율 상세는 클릭해서 확인하세요. 실제 청구액이 아닌 추정 API 비용`}
                   onClick={() => setOpenUsageInfoId(current => current === item.id ? null : item.id)}>
@@ -269,7 +271,7 @@ export default function App() {
                   <span>환율: {(item.ai_usage.fx_rates ?? []).map(rate => `1 USD = ${rate.usd_krw_rate} KRW (${rate.as_of}, ${rate.source})`).join('; ') || '—'}</span>
                   <span>실제 청구액이 아닌 추정 API 비용</span>
                 </span>}
-              </span>}
+              </span></>}
             </span>
             <span className="content-preview">{item.preview.map(card => card.key + ' — ' + card.values[0]).join(' / ')}</span>
           </div>
