@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { createApp, getTrustProxySetting } from '../../server/src/app.js';
 import { MemoryLearningRepository } from '../../server/src/repositories/memory.js';
 import { MockAiService, OpenAiService } from '../../server/src/services/ai.js';
+import { calculateAiUsage } from '../../server/src/services/ai-pricing.js';
 import { GeneratedSetSchema } from '../../shared/schemas/index.js';
 
 const repository = new MemoryLearningRepository();
@@ -103,6 +104,49 @@ describe('MODU2 API', () => {
     expect(body.suggestions.length).toBeGreaterThanOrEqual(2);
     expect(body.suggestions.length).toBeLessThanOrEqual(3);
     expect(body.message).toContain('음식 페어링');
+  });
+  it('stores actual suggestion and generation usage on the generated content', async () => {
+    const mock = new MockAiService();
+    const repo = new MemoryLearningRepository();
+    const suggestionUsage = calculateAiUsage({ model: 'gpt-4o-mini', inputTokens: 100, outputTokens: 20, totalTokens: 120 });
+    const generationUsage = calculateAiUsage({ model: 'gpt-4o-mini', inputTokens: 200, outputTokens: 80, totalTokens: 280 });
+    const meteredAi = {
+      suggest: async (input: Parameters<typeof mock.suggest>[0], id: string) => ({ ...(await mock.suggest(input, id)), usage: suggestionUsage }),
+      generate: async (input: Parameters<typeof mock.generate>[0], id: string) => ({ ...(await mock.generate(input, id)), usage: generationUsage }),
+      extractImage: mock.extractImage.bind(mock),
+    };
+    const meteredApp = createApp({ ai: meteredAi, repository: repo });
+    const meteredServer = meteredApp.listen(0);
+    await new Promise<void>(resolve => meteredServer.once('listening', resolve));
+    const url = `http://127.0.0.1:${(meteredServer.address() as any).port}`;
+    try {
+      const suggestion = await fetch(`${url}/api/ai/suggestions`, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ original_request: '비용 추적 테스트', refinement_request: '', previous_suggestions: [] }) });
+      expect(suggestion.status).toBe(200);
+      const session = await suggestion.json();
+      expect(session.ai_usage_session_id).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(session.ai_usage_session_token).toBeTruthy();
+      const generated = await fetch(`${url}/api/learning-sets`, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ original_request: '비용 추적 테스트', selected_topic: '비용 추적 테스트 콘텐츠',
+          learning_goal: 'usage 연결 확인', client_request_id: crypto.randomUUID(), ai_usage_session_id: session.ai_usage_session_id,
+          ai_usage_session_token: session.ai_usage_session_token }) });
+      expect(generated.status).toBe(201);
+      const list = await fetch(`${url}/api/learning-sets?q=${encodeURIComponent('비용 추적 테스트 콘텐츠')}`).then(response => response.json());
+      expect(list.results[0].ai_usage).toMatchObject({ input_tokens: 300, output_tokens: 100, total_tokens: 400,
+        models: ['gpt-4o-mini'], operations: ['suggestions', 'flashcard_generation'] });
+      expect(list.results[0].ai_usage.estimated_krw).toBeCloseTo(suggestionUsage.estimatedKrw! + generationUsage.estimatedKrw!, 8);
+    } finally { await new Promise<void>(resolve => meteredServer.close(() => resolve())); }
+  });
+  it('rejects a forged usage session token and replaces an unsigned legacy UUID', async () => {
+    const forgedId = crypto.randomUUID();
+    const forged = await fetch(`${baseUrl}/api/ai/suggestions`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ original_request: '서명 검증', refinement_request: '', previous_suggestions: [],
+        ai_usage_session_id: forgedId, ai_usage_session_token: 'x'.repeat(43) }) });
+    expect(forged.status).toBe(400);
+    const legacy = await fetch(`${baseUrl}/api/ai/suggestions`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ original_request: '기존 클라이언트 호환', refinement_request: '', previous_suggestions: [], ai_usage_session_id: forgedId }) });
+    expect(legacy.status).toBe(200);
+    expect((await legacy.json()).ai_usage_session_id).not.toBe(forgedId);
   });
   it('generates and stores ten cards idempotently, then reads without AI', async () => {
     const input = { original_request: '와인', selected_topic: '와인 기초', learning_goal: '기본을 안다', client_request_id: crypto.randomUUID() };

@@ -14,6 +14,8 @@ export const SuggestionRequestSchema = z.object({
   original_request: z.string().trim().min(1).max(200),
   refinement_request: z.string().trim().max(200).default(''),
   previous_suggestions: z.array(SuggestionSchema).max(10).default([]),
+  ai_usage_session_id: z.string().uuid().optional(),
+  ai_usage_session_token: z.string().min(32).max(128).optional(),
 });
 const trimmedTextMaxCodePoints = (max: number) => z.string().trim().min(1).refine(
   value => Array.from(value).length <= max,
@@ -36,11 +38,15 @@ export const CreateSetRequestSchema = z.object({
   selected_topic: z.string().trim().min(1).max(160),
   learning_goal: z.string().trim().min(1).max(240),
   client_request_id: z.string().uuid(),
+  ai_usage_session_id: z.string().uuid().optional(),
+  ai_usage_session_token: z.string().min(32).max(128).optional(),
 });
 export const ImportedSetRequestSchema = z.object({
   title: z.string().trim().min(1).max(120),
   cards: EditableCardsSchema,
   source_mode: z.enum(['AI', 'PHOTO', 'TEXT', 'EXCEL']),
+  ai_usage_session_id: z.string().uuid().optional(),
+  ai_usage_session_token: z.string().min(32).max(128).optional(),
 });
 export const UpdateSetRequestSchema = ImportedSetRequestSchema.extend({
   expected_updated_at: z.string().datetime(),
@@ -55,6 +61,21 @@ export const ListQuerySchema = z.object({
 export const SearchQuerySchema = z.string().trim().min(1).max(100);
 export type Suggestion = z.infer<typeof SuggestionSchema>;
 export type SuggestionsResponse = z.infer<typeof SuggestionsResponseSchema>;
+export type AiUsageSummary = {
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  cached_input_tokens: number | null;
+  estimated_usd: number | null;
+  estimated_krw: number | null;
+  models: string[] | null;
+  operations: string[] | null;
+  pricing_as_of: string[] | null;
+  fx_rate_as_of: string[] | null;
+  fx_rate_source: string[] | null;
+  model_rates: { model: string; input_usd_per_million: number | null; cached_input_usd_per_million: number | null; output_usd_per_million: number | null; pricing_as_of: string }[] | null;
+  fx_rates: { usd_krw_rate: number; as_of: string; source: string }[] | null;
+};
 export type Flashcard = z.infer<typeof FlashcardSchema>;
 export type GeneratedSet = z.infer<typeof GeneratedSetSchema>;
 export type CreateSetRequest = z.infer<typeof CreateSetRequestSchema>;

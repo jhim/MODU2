@@ -9,7 +9,7 @@ import { ImportPanel } from '../components/ImportPanel';
 import { Button, Card, Input } from '../components/ui';
 
 type Screen = 'home' | 'suggestions' | 'generating' | 'study' | 'library' | 'editor' | 'import' | 'auth';
-type Draft = { title: string; cards: Flashcard[]; sourceMode: SourceMode; issues: { row: number; message: string }[]; reviewIndexes?: number[] };
+type Draft = { title: string; cards: Flashcard[]; sourceMode: SourceMode; issues: { row: number; message: string }[]; reviewIndexes?: number[]; aiUsageSessionId?: string; aiUsageSessionToken?: string };
 type SaveDraft = { draft: Draft; id?: string; expectedUpdatedAt?: string };
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home');
@@ -21,6 +21,8 @@ export default function App() {
   const [message, setMessage] = useState('');
   const [refinement, setRefinement] = useState('');
   const [originalRequest, setOriginalRequest] = useState('');
+  const [aiUsageSessionId, setAiUsageSessionId] = useState<string | null>(null);
+  const [aiUsageSessionToken, setAiUsageSessionToken] = useState<string | null>(null);
   const [activeSet, setActiveSet] = useState<ContentSet | null>(null);
   const [cardIndex, setCardIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -82,7 +84,9 @@ export default function App() {
       const set = input.id
         ? await api.update(input.id, { title: input.draft.title, cards: input.draft.cards,
             source_mode: input.draft.sourceMode, expected_updated_at: input.expectedUpdatedAt! })
-        : await api.createImported({ title: input.draft.title, cards: input.draft.cards, source_mode: input.draft.sourceMode });
+        : await api.createImported({ title: input.draft.title, cards: input.draft.cards, source_mode: input.draft.sourceMode,
+            ...(input.draft.aiUsageSessionId ? { ai_usage_session_id: input.draft.aiUsageSessionId,
+              ai_usage_session_token: input.draft.aiUsageSessionToken } : {}) });
       setActiveSet(set); setCardIndex(0); setFlipped(false); setEditing(null); setDraft(null); setScreen('study');
     } catch (reason) { setError(reason instanceof Error ? reason.message : '저장하지 못했습니다.'); setScreen('editor'); }
     finally { setBusy(false); }
@@ -92,10 +96,12 @@ export default function App() {
     const subject = subjectOverride ?? (originalRequest || query.trim());
     if (!subject) { setError('먼저 학습하고 싶은 주제를 입력해 주세요.'); return; }
     const previous = subjectOverride ? [] : suggestions;
+    const reuseSession = !subjectOverride && screen === 'suggestions' && aiUsageSessionId && aiUsageSessionToken;
     setError(''); setBusy(true); setOriginalRequest(subject); setSuggestions(previous); setShowResults(false);
     try {
-      const data = await api.suggestions({ original_request: subject, refinement_request: refine, previous_suggestions: previous });
-      setSuggestions(data.suggestions); setMessage(data.message); setRefinement(''); setScreen('suggestions');
+      const data = await api.suggestions({ original_request: subject, refinement_request: refine, previous_suggestions: previous,
+        ...(reuseSession ? { ai_usage_session_id: aiUsageSessionId, ai_usage_session_token: aiUsageSessionToken } : {}) });
+      setAiUsageSessionId(data.ai_usage_session_id); setAiUsageSessionToken(data.ai_usage_session_token); setSuggestions(data.suggestions); setMessage(data.message); setRefinement(''); setScreen('suggestions');
     } catch (reason) { setError(reason instanceof Error ? reason.message : '추천을 불러오지 못했습니다.'); }
     finally { setBusy(false); }
   }
@@ -109,7 +115,8 @@ export default function App() {
     setError(''); setScreen('generating');
     try {
       const set = await api.create({ original_request: originalRequest, selected_topic: suggestion.title,
-        learning_goal: suggestion.learning_goal, client_request_id: crypto.randomUUID() });
+        learning_goal: suggestion.learning_goal, client_request_id: crypto.randomUUID(),
+        ...(aiUsageSessionId && aiUsageSessionToken ? { ai_usage_session_id: aiUsageSessionId, ai_usage_session_token: aiUsageSessionToken } : {}) });
       const complete = set.cards ? set : await api.get(set.id);
       setActiveSet(complete); setCardIndex(0); setFlipped(false); setScreen('study');
     } catch (reason) { setError(reason instanceof Error ? reason.message : '카드 생성에 실패했습니다.'); setScreen('suggestions'); }
@@ -118,7 +125,7 @@ export default function App() {
     const last = (activeSet?.cards?.length ?? 0) - 1;
     setCardIndex(index => Math.max(0, Math.min(last, index + delta))); setFlipped(false);
   }
-  function goHome() { setScreen('home'); setActiveSet(null); setError(''); setShowResults(false); }
+  function goHome() { setScreen('home'); setActiveSet(null); setError(''); setShowResults(false); setAiUsageSessionId(null); setAiUsageSessionToken(null); }
   function openLibrary(scope: 'all' | 'mine' = 'all') {
     setError('');
     if (scope === 'mine' && !session) { setScreen('auth'); setAuthMode('login'); setListScope('mine'); return; }
@@ -132,8 +139,9 @@ export default function App() {
     if (editing?.id) await persistDraft({ draft: next, id: editing.id, expectedUpdatedAt: input.expectedUpdatedAt });
     else await persistDraft({ draft: next });
   }
-  function onImportReady(value: { title: string; cards: Flashcard[]; sourceMode: 'PHOTO' | 'TEXT' | 'EXCEL'; issues: { row: number; message: string }[]; reviewIndexes?: number[] }) {
-    setDraft({ title: value.title, cards: value.cards, sourceMode: value.sourceMode, issues: value.issues, reviewIndexes: value.reviewIndexes });
+  function onImportReady(value: { title: string; cards: Flashcard[]; sourceMode: 'PHOTO' | 'TEXT' | 'EXCEL'; issues: { row: number; message: string }[]; reviewIndexes?: number[]; aiUsageSessionId?: string; aiUsageSessionToken?: string }) {
+    setDraft({ title: value.title, cards: value.cards, sourceMode: value.sourceMode, issues: value.issues,
+      reviewIndexes: value.reviewIndexes, aiUsageSessionId: value.aiUsageSessionId, aiUsageSessionToken: value.aiUsageSessionToken });
     setEditing(null); setScreen('editor');
   }
   async function reuploadExisting(file: File, currentTitle: string) {
@@ -240,7 +248,13 @@ export default function App() {
         {listData.results.map(item => <article className="content-row" key={item.id}>
           <button className="content-main" onClick={() => void openSet(item.id)}>
             <span className="source-chip">{item.source_mode === 'PHOTO' ? '사진' : item.source_mode === 'TEXT' ? 'TXT' : item.source_mode === 'EXCEL' ? 'Excel' : 'AI'}</span>
-            <strong>{item.title}</strong><span className="content-meta">{item.card_count}개 카드 · 생성 {new Date(item.created_at).toLocaleDateString('ko-KR')} · 수정 {new Date(item.updated_at ?? item.created_at).toLocaleDateString('ko-KR')}</span>
+            <strong>{item.title}</strong><span className="content-meta">
+              {item.card_count}개 카드 · 생성 {new Date(item.created_at).toLocaleDateString('ko-KR')} · 수정 {new Date(item.updated_at ?? item.created_at).toLocaleDateString('ko-KR')}
+              {item.ai_usage && typeof item.ai_usage.total_tokens === 'number' && Number.isFinite(item.ai_usage.total_tokens) && <span className="ai-cost" title={`입력 ${(item.ai_usage.input_tokens ?? 0).toLocaleString()} · 출력 ${(item.ai_usage.output_tokens ?? 0).toLocaleString()} · 총 ${item.ai_usage.total_tokens.toLocaleString()} tokens\n모델 단가: ${(item.ai_usage.model_rates ?? []).map(rate => `${rate.model}: 입력 $${rate.input_usd_per_million ?? '미등록'} · 캐시 $${rate.cached_input_usd_per_million ?? '미등록'} · 출력 $${rate.output_usd_per_million ?? '미등록'} / 1M tokens (${rate.pricing_as_of})`).join('; ')}\n환율: ${(item.ai_usage.fx_rates ?? []).map(rate => `1 USD = ${rate.usd_krw_rate} KRW (${rate.as_of}, ${rate.source})`).join('; ')}\n실제 청구액이 아닌 추정 API 비용`}>
+                {' · 크레딧 '}{item.ai_usage.total_tokens.toLocaleString()}{' tokens'}
+                {typeof item.ai_usage.estimated_krw === 'number' && Number.isFinite(item.ai_usage.estimated_krw) && <> · 약 {Math.round(item.ai_usage.estimated_krw).toLocaleString()}원</>}
+              </span>}
+            </span>
             <span className="content-preview">{item.preview.map(card => card.key + ' — ' + card.values[0]).join(' / ')}</span>
           </button>
           <div className="content-actions"><Button variant="outline" onClick={() => void openSet(item.id)}>학습하기</Button>
@@ -286,7 +300,7 @@ export default function App() {
       </> : <p className="error-message">카드 내용을 찾을 수 없습니다.</p>}
       <div className="study-actions">
         {activeSet.can_edit && <Button variant="outline" onClick={async () => { const set = await api.get(activeSet.id); setEditing(set); setDraft({ title: set.title, cards: set.cards ?? [], sourceMode: set.source_mode ?? 'AI', issues: [] }); setScreen('editor'); }}>내용 수정하기</Button>}
-        {activeSet.saved === false && <Button variant="outline" onClick={() => { setEditing(null); setDraft({ title: activeSet.title, cards: activeSet.cards ?? [], sourceMode: activeSet.source_mode ?? 'AI', issues: [] }); setScreen('editor'); }}>내 콘텐츠로 저장</Button>}
+        {activeSet.saved === false && <Button variant="outline" onClick={() => { setEditing(null); setDraft({ title: activeSet.title, cards: activeSet.cards ?? [], sourceMode: activeSet.source_mode ?? 'AI', issues: [], aiUsageSessionId: activeSet.ai_usage_session_id, aiUsageSessionToken: activeSet.ai_usage_session_token }); setScreen('editor'); }}>내 콘텐츠로 저장</Button>}
       </div>
     </main>}
 

@@ -35,6 +35,7 @@ if (mode === 'mock') {
   repository = SupabaseLearningRepository.fromEnv(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   ai = new OpenAiService(process.env.OPENAI_API_KEY!, process.env.OPENAI_MODEL || 'gpt-4o-mini');
 }
-const app = createApp({ ai, repository, verifyAccessToken, enableTestRoutes: mode === 'mock' && process.env.NODE_ENV === 'test' });
+const app = createApp({ ai, repository, verifyAccessToken, aiUsageSessionSecret: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  enableTestRoutes: mode === 'mock' && process.env.NODE_ENV === 'test' });
 const port = Number(process.env.PORT || 3000);
 app.listen(port, '0.0.0.0', () => console.info('MODU2 listening on 0.0.0.0:' + port));

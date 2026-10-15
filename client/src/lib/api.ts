@@ -1,13 +1,13 @@
-import type { CreateSetRequest, Flashcard, Suggestion } from '../../../shared/schemas/index';
+import type { AiUsageSummary, CreateSetRequest, Flashcard, Suggestion } from '../../../shared/schemas/index';
 
 export type SourceMode = 'AI' | 'PHOTO' | 'TEXT' | 'EXCEL';
 export interface ContentSet {
   id: string; title: string; original_request: string; selected_topic?: string; learning_goal?: string;
   created_at: string; updated_at?: string; status?: string; source_mode?: SourceMode;
-  cards?: Flashcard[]; saved?: boolean; can_edit?: boolean;
+  cards?: Flashcard[]; saved?: boolean; can_edit?: boolean; ai_usage_session_id?: string; ai_usage_session_token?: string;
 }
-export interface ContentListItem extends ContentSet {
-  card_count: number; preview: Flashcard[]; can_edit: boolean;
+export interface ContentListItem extends Omit<ContentSet, 'ai_usage_session_id'> {
+  card_count: number; preview: Flashcard[]; can_edit: boolean; ai_usage?: AiUsageSummary | null;
 }
 export interface ContentListResponse {
   results: ContentListItem[]; total: number; page: number; page_size: number; total_pages: number;
@@ -36,11 +36,11 @@ export const api = {
     const params = new URLSearchParams({ ...input, page: String(input.page), page_size: String(input.page_size) });
     return request<ContentListResponse>('/api/learning-sets?' + params);
   },
-  suggestions: (body: { original_request: string; refinement_request: string; previous_suggestions: Suggestion[] }) =>
-    request<{ message: string; suggestions: Suggestion[] }>('/api/ai/suggestions', { method: 'POST', body: JSON.stringify(body) }),
+  suggestions: (body: { original_request: string; refinement_request: string; previous_suggestions: Suggestion[]; ai_usage_session_id?: string; ai_usage_session_token?: string }) =>
+    request<{ message: string; suggestions: Suggestion[]; ai_usage_session_id: string; ai_usage_session_token: string }>('/api/ai/suggestions', { method: 'POST', body: JSON.stringify(body) }),
   create: (body: CreateSetRequest) => request<ContentSet>('/api/learning-sets', { method: 'POST', body: JSON.stringify(body) }),
   get: (id: string) => request<ContentSet>('/api/learning-sets/' + encodeURIComponent(id)),
-  createImported: (body: { title: string; cards: Flashcard[]; source_mode: SourceMode }) =>
+  createImported: (body: { title: string; cards: Flashcard[]; source_mode: SourceMode; ai_usage_session_id?: string; ai_usage_session_token?: string }) =>
     request<ContentSet>('/api/learning-sets/import', { method: 'POST', body: JSON.stringify(body) }),
   update: (id: string, body: { title: string; cards: Flashcard[]; source_mode: SourceMode; expected_updated_at: string }) =>
     request<ContentSet>('/api/learning-sets/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(body) }),
@@ -58,7 +58,7 @@ export const api = {
       ...(keyColumn ? { 'x-key-column': String(keyColumn) } : {}),
       ...(valueColumns ? { 'x-value-columns': valueColumns.join(',') } : {}),
     }, body: file }),
-  extractPhoto: (file: File) => request<{ cards: Flashcard[]; review_card_indexes: number[] }>('/api/import/photo', {
+  extractPhoto: (file: File) => request<{ cards: Flashcard[]; review_card_indexes: number[]; ai_usage_session_id: string; ai_usage_session_token: string }>('/api/import/photo', {
     method: 'POST', headers: { 'content-type': file.type }, body: file }),
   download: async (id: string, format: 'txt' | 'xlsx') => {
     const headers = new Headers();

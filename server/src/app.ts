@@ -6,14 +6,16 @@ import { ZodError } from 'zod';
 import { CreateSetRequestSchema, EditableCardsSchema, ImportedSetRequestSchema, ListQuerySchema,
   SearchQuerySchema, SuggestionRequestSchema, UpdateSetRequestSchema, type CreateSetRequest } from '../../shared/schemas/index.js';
 import { AiProviderError, type AiService } from './services/ai.js';
+import type { AiUsageRecord } from './services/ai-pricing.js';
 import { decodeUtf8, inspectWorkbook, parseTextImport, parseWorkbook, type ColumnMapping } from './services/imports.js';
 import { exportTsv, exportXlsx } from './services/exports.js';
 import { inspectImage } from './services/images.js';
+import { createEphemeralAiUsageSecret, issueAiUsageSession, verifyAiUsageSession, type AiUsageSession } from './services/ai-usage-session.js';
 import type { LearningRepository } from './repositories/types.js';
 import { logMetric, requestId as newRequestId } from './lib/metrics.js';
 
 type User = { id: string; email?: string };
-type Deps = { ai: AiService; repository: LearningRepository; enableTestRoutes?: boolean; allowAnonymousPersistence?: boolean; verifyAccessToken?: LearningRepository["verifyAccessToken"] };
+type Deps = { ai: AiService; repository: LearningRepository; enableTestRoutes?: boolean; allowAnonymousPersistence?: boolean; verifyAccessToken?: LearningRepository["verifyAccessToken"]; aiUsageSessionSecret?: string };
 function uploadError(res: Response, message: string, status = 400) { return res.status(status).json({ error: message }); }
 function isBuffer(value: unknown): value is Buffer { return Buffer.isBuffer(value); }
 function validImage(bytes: Buffer, type: string): type is 'image/jpeg' | 'image/png' | 'image/webp' {
@@ -58,6 +60,15 @@ function errorStatus(error: any): number | undefined {
 function contentDisposition(name: string) {
   return 'attachment; filename="' + name.replace(/[^a-zA-Z0-9._-]/g, '_') + '"';
 }
+function resolveAiUsageSession(id: string | undefined, token: string | undefined, secret: string): AiUsageSession {
+  if (token && !id) throw Object.assign(new Error('AI 사용량 연결 정보가 올바르지 않습니다.'), { status: 400 });
+  if (id && token) {
+    if (!verifyAiUsageSession(id, token, secret)) throw Object.assign(new Error('AI 사용량 연결 정보가 만료되었거나 올바르지 않습니다.'), { status: 400 });
+    return { id, token };
+  }
+  // Ignore legacy client-supplied UUIDs without a server signature.
+  return issueAiUsageSession(secret);
+}
 
 export function getTrustProxySetting(env: NodeJS.ProcessEnv = process.env): number | false {
   const railwayProduction = env.MODU2_MODE === 'production'
@@ -67,6 +78,7 @@ export function getTrustProxySetting(env: NodeJS.ProcessEnv = process.env): numb
 
 export function createApp(deps: Deps) {
   const app = express();
+  const aiUsageSessionSecret = deps.aiUsageSessionSecret ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? createEphemeralAiUsageSecret();
   app.disable('x-powered-by');
   app.set('trust proxy', getTrustProxySetting());
   app.use(express.json({ limit: '6mb' }));
@@ -98,11 +110,26 @@ export function createApp(deps: Deps) {
     } catch (error) { return next(error); }
   });
   app.post('/api/ai/suggestions', aiLimiter, async (req, res, next) => {
+    let sessionId: string | undefined;
+    let usageOwnerId: string | undefined;
     try {
       const parsed = SuggestionRequestSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: '학습 요청을 확인해 주세요.' });
-      return res.json(await deps.ai.suggest(parsed.data, res.locals.requestId));
-    } catch (error) { return next(error); }
+      usageOwnerId = (await resolveUser(req, deps.repository, verifyToken))?.id;
+      const { ai_usage_session_id: suppliedSessionId, ai_usage_session_token: suppliedToken, ...suggestionInput } = parsed.data;
+      const usageSession = resolveAiUsageSession(suppliedSessionId, suppliedToken, aiUsageSessionSecret);
+      sessionId = usageSession.id;
+      if (usageOwnerId) await deps.repository.claimAiUsageSession(sessionId, usageOwnerId);
+      const result = await deps.ai.suggest(suggestionInput, res.locals.requestId);
+      if (result.usage) await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'suggestions', usage: result.usage, ownerId: usageOwnerId });
+      return res.json({ ...result.data, ai_usage_session_id: sessionId, ai_usage_session_token: usageSession.token });
+    } catch (error) {
+      if (error instanceof AiProviderError && error.usage && sessionId) {
+        try { await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'suggestions', usage: error.usage, ownerId: usageOwnerId }); }
+        catch { logMetric('ai_usage_persist_error', { request_id: res.locals.requestId, operation: 'suggestions' }); }
+      }
+      return next(error);
+    }
   });
 
   app.get('/api/learning-sets', async (req, res, next) => {
@@ -121,18 +148,28 @@ export function createApp(deps: Deps) {
       const parsed = CreateSetRequestSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: '학습 주제와 요청 정보를 확인해 주세요.' });
       const input: CreateSetRequest = parsed.data;
+      const usageSession = resolveAiUsageSession(input.ai_usage_session_id, input.ai_usage_session_token, aiUsageSessionSecret);
+      input.ai_usage_session_id = usageSession.id;
+      input.ai_usage_session_token = usageSession.token;
       const user = await resolveUser(req, deps.repository, verifyToken);
+      if (user) await deps.repository.claimAiUsageSession(usageSession.id, user.id);
       // Production guests can study a generated preview, but no row is persisted until login.
       const persist = Boolean(user) || deps.allowAnonymousPersistence === true || deps.repository.allowAnonymousPersistence === true || process.env.MODU2_MODE === 'mock';
       if (!persist) {
+        const sessionId = usageSession.id;
         const generated = await deps.ai.generate(input, res.locals.requestId);
-        return res.status(200).json({ id: randomUUID(), title: generated.title, original_request: input.original_request,
+        if (generated.usage) await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId,
+            operation: 'flashcard_generation', usage: generated.usage, ownerId: user?.id });
+        return res.status(200).json({ id: randomUUID(), title: generated.data.title, original_request: input.original_request,
           selected_topic: input.selected_topic, learning_goal: input.learning_goal, status: 'COMPLETED',
-          created_at: new Date().toISOString(), source_mode: 'AI', cards: generated.cards, saved: false });
+          created_at: new Date().toISOString(), source_mode: 'AI', cards: generated.data.cards, saved: false,
+          ai_usage_session_id: sessionId, ai_usage_session_token: usageSession.token });
       }
       const reserveStarted = performance.now();
       const reservation = await deps.repository.reserve({ requestId: input.client_request_id, originalRequest: input.original_request,
-        selectedTopic: input.selected_topic, learningGoal: input.learning_goal, ...(user ? { ownerId: user.id } : {}) });
+        selectedTopic: input.selected_topic, learningGoal: input.learning_goal, ...(user ? { ownerId: user.id } : {}),
+        aiUsageSessionId: usageSession.id });
+      const aiUsageSessionId = reservation.set.ai_usage_session_id ?? input.ai_usage_session_id ?? randomUUID();
       logMetric('db_reserve', { request_id: res.locals.requestId, duration_ms: Math.round(performance.now() - reserveStarted) });
       if (!reservation.created) {
         if (reservation.set.owner_id && user?.id !== reservation.set.owner_id) return res.status(409).json({ error: '요청 ID를 다시 만들어 주세요.' });
@@ -143,15 +180,26 @@ export function createApp(deps: Deps) {
         return res.status(409).json({ error: reservation.set.status === 'FAILED' ? '이전 생성이 실패했습니다. 새 요청으로 다시 시도해 주세요.' : '같은 요청을 처리하고 있습니다.' });
       }
       try {
-        let generated;
+        let generated: Awaited<ReturnType<AiService['generate']>> | undefined;
         for (let attempt = 0; attempt < 2; attempt++) {
-          try { generated = await deps.ai.generate(input, res.locals.requestId); break; }
-          catch (error) { if (error instanceof ZodError && attempt === 0) { logMetric('generation_retry', { request_id: res.locals.requestId, attempt: attempt + 1 }); continue; } throw error; }
+          try {
+            generated = await deps.ai.generate(input, res.locals.requestId);
+            if (generated.usage) await deps.repository.recordAiUsage({ sessionId: aiUsageSessionId,
+              requestId: res.locals.requestId, operation: 'flashcard_generation', usage: generated.usage, ownerId: user?.id });
+            break;
+          } catch (error) {
+            const rejectedUsage = (error as Error & { aiUsage?: AiUsageRecord | null }).aiUsage
+              ?? (error instanceof AiProviderError ? error.usage : null);
+            if (rejectedUsage) await deps.repository.recordAiUsage({ sessionId: aiUsageSessionId,
+              requestId: res.locals.requestId, operation: 'flashcard_generation', usage: rejectedUsage, ownerId: user?.id });
+            if (error instanceof ZodError && attempt === 0) { logMetric('generation_retry', { request_id: res.locals.requestId, attempt: attempt + 1 }); continue; }
+            throw error;
+          }
         }
         if (!generated) throw new AiProviderError('flashcard_generation');
-        const cards = bodyCards(generated.cards);
+        const cards = bodyCards(generated.data.cards);
         const started = performance.now();
-        const completed = await deps.repository.complete(reservation.set.id, generated.title, cards);
+        const completed = await deps.repository.complete(reservation.set.id, generated.data.title, cards);
         logMetric('db_write', { request_id: res.locals.requestId, duration_ms: Math.round(performance.now() - started) });
         return res.status(201).json({ ...completed, saved: Boolean(user) });
       } catch (error) { await deps.repository.fail(reservation.set.id).catch(() => undefined); throw error; }
@@ -162,8 +210,13 @@ export function createApp(deps: Deps) {
     try {
       const parsed = ImportedSetRequestSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: '제목과 카드 내용을 확인해 주세요.' });
+      const usageSession = parsed.data.ai_usage_session_id || parsed.data.ai_usage_session_token
+        ? resolveAiUsageSession(parsed.data.ai_usage_session_id, parsed.data.ai_usage_session_token, aiUsageSessionSecret)
+        : undefined;
+      if (usageSession) await deps.repository.claimAiUsageSession(usageSession.id, res.locals.user.id);
       const set = await deps.repository.createOwned({ ownerId: res.locals.user.id, title: parsed.data.title,
-        cards: parsed.data.cards, sourceMode: parsed.data.source_mode });
+        cards: parsed.data.cards, sourceMode: parsed.data.source_mode,
+        ...((parsed.data.source_mode === 'PHOTO' || parsed.data.source_mode === 'AI') && usageSession ? { aiUsageSessionId: usageSession.id } : {}) });
       return res.status(201).json({ ...set, saved: true });
     } catch (error) { return next(error); }
   });
@@ -202,12 +255,33 @@ export function createApp(deps: Deps) {
     const mime = req.header('content-type')?.split(';')[0]?.trim() ?? '';
     if (!isBuffer(req.body) || !validImage(req.body, mime)) return uploadError(res, 'JPG, PNG, WebP 형식의 사진만 업로드할 수 있습니다.', 415);
     if (req.body.byteLength > 8 * 1024 * 1024) return uploadError(res, '사진은 8MB 이하만 업로드할 수 있습니다.', 413);
+    const sessionHeader = req.header('x-ai-usage-session-id');
+    const sessionTokenHeader = req.header('x-ai-usage-session-token');
+    if (sessionHeader && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionHeader)) {
+      return uploadError(res, 'AI 사용량 연결 ID가 올바르지 않습니다.');
+    }
+    let usageSession: AiUsageSession;
+    try { usageSession = resolveAiUsageSession(sessionHeader, sessionTokenHeader, aiUsageSessionSecret); }
+    catch (error) { return uploadError(res, error instanceof Error ? error.message : 'AI 사용량 연결 정보가 올바르지 않습니다.', 400); }
+    const sessionId = usageSession.id;
+    let usageOwnerId: string | undefined;
     try {
+      usageOwnerId = (await resolveUser(req, deps.repository, verifyToken))?.id;
+      if (usageOwnerId) await deps.repository.claimAiUsageSession(sessionId, usageOwnerId);
       inspectImage(req.body, mime);
       const extracted = await deps.ai.extractImage(req.body, mime, res.locals.requestId);
-      return res.json({ cards: extracted.cards.map(({ key, values }) => ({ key, values })),
-        review_card_indexes: extracted.cards.flatMap((card, index) => card.needs_review ? [index] : []) });
-    } catch (error) { return next(error); }
+      if (extracted.usage) await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId,
+        operation: 'image_extraction', usage: extracted.usage, ownerId: usageOwnerId });
+      return res.json({ cards: extracted.data.cards.map(({ key, values }) => ({ key, values })),
+        review_card_indexes: extracted.data.cards.flatMap((card, index) => card.needs_review ? [index] : []),
+        ai_usage_session_id: sessionId, ai_usage_session_token: usageSession.token });
+    } catch (error) {
+      if (error instanceof AiProviderError && error.usage) {
+        try { await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'image_extraction', usage: error.usage, ownerId: usageOwnerId }); }
+        catch { logMetric('ai_usage_persist_error', { request_id: res.locals.requestId, operation: 'image_extraction' }); }
+      }
+      return next(error);
+    }
   });
 
   app.post('/api/learning-sets/:id/import-preview', requireAuth, async (req, res, next) => {

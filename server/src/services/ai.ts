@@ -2,13 +2,17 @@ import OpenAI, { APIError } from 'openai';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import { GeneratedSetSchema, SuggestionsResponseSchema, type CreateSetRequest, type SuggestionsResponse } from '../../../shared/schemas/index.js';
-import { FLASHCARD_SYSTEM_PROMPT, SUGGESTION_SYSTEM_PROMPT } from '../prompts/index.js';
+import { FLASHCARD_DEVELOPER_PROMPT, FLASHCARD_SYSTEM_PROMPT, IMAGE_EXTRACTION_DEVELOPER_PROMPT,
+  IMAGE_EXTRACTION_SYSTEM_PROMPT, SUGGESTION_DEVELOPER_PROMPT, SUGGESTION_SYSTEM_PROMPT } from '../prompts/index.js';
 import { logMetric } from '../lib/metrics.js';
+import { calculateAiUsage, type AiUsageRecord } from './ai-pricing.js';
+
+export type AiCallResult<T> = { data: T; usage: AiUsageRecord | null };
 
 export interface AiService {
-  suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, requestId: string): Promise<SuggestionsResponse>;
-  generate(input: CreateSetRequest, requestId: string): Promise<{ title: string; cards: { key: string; values: string[] }[] }>;
-  extractImage(bytes: Buffer, mimeType: 'image/jpeg' | 'image/png' | 'image/webp', requestId: string): Promise<{ cards: { key: string; values: string[]; needs_review: boolean }[] }>;
+  suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, requestId: string): Promise<AiCallResult<SuggestionsResponse>>;
+  generate(input: CreateSetRequest, requestId: string): Promise<AiCallResult<{ title: string; cards: { key: string; values: string[] }[] }>>;
+  extractImage(bytes: Buffer, mimeType: 'image/jpeg' | 'image/png' | 'image/webp', requestId: string): Promise<AiCallResult<{ cards: { key: string; values: string[]; needs_review: boolean }[] }>>;
 }
 
 const ImageCardsSchema = z.object({
@@ -31,33 +35,33 @@ function responseFormat(schema: Parameters<typeof zodResponseFormat>[0], name: s
 }
 
 export class MockAiService implements AiService {
-  async suggest(input: { original_request: string; refinement_request: string }, _requestId: string): Promise<SuggestionsResponse> {
+  async suggest(input: { original_request: string; refinement_request: string }, _requestId: string): Promise<AiCallResult<SuggestionsResponse>> {
     const subject = input.refinement_request || input.original_request;
-    return SuggestionsResponseSchema.parse({
+    return { data: SuggestionsResponseSchema.parse({
       message: subject + '에 대해 어떤 내용을 학습하고 싶으세요?',
       suggestions: [
         { id: 's1', title: subject + ' 핵심 개념', description: subject + '의 기본 원리와 주요 용어', learning_goal: subject + '의 핵심 개념을 설명할 수 있다' },
         { id: 's2', title: subject + ' 구성과 종류', description: subject + '를 이루는 요소와 대표적인 분류', learning_goal: subject + '의 주요 종류를 구분할 수 있다' },
         { id: 's3', title: subject + ' 실전 활용', description: subject + '를 일상과 실제 상황에 적용하는 방법', learning_goal: subject + '의 기본 지식을 실제 사례에 적용할 수 있다' },
       ],
-    });
+    }), usage: null };
   }
-  async generate(input: CreateSetRequest, _requestId: string): Promise<{ title: string; cards: { key: string; values: string[] }[] }> {
+  async generate(input: CreateSetRequest, _requestId: string): Promise<AiCallResult<{ title: string; cards: { key: string; values: string[] }[] }>> {
     const topic = input.selected_topic;
     const cards = Array.from({ length: 10 }, (_, i) => ({
       key: topic + ' 핵심 항목 ' + (i + 1),
       values: [topic + ' 학습에서 알아둘 핵심 내용 ' + (i + 1) + '입니다.', '관련 개념과 실제 사례를 함께 살펴보세요.'],
     }));
-    return GeneratedSetSchema.parse({ title: topic, cards });
+    return { data: GeneratedSetSchema.parse({ title: topic, cards }), usage: null };
   }
   async extractImage(_bytes: Buffer, _mimeType: 'image/jpeg' | 'image/png' | 'image/webp', _requestId: string) {
-    return { cards: [{ key: '사진에서 확인할 항목', values: ['원본 이미지를 보며 내용을 직접 입력해 주세요.'], needs_review: true }] };
+    return { data: { cards: [{ key: '사진에서 확인할 항목', values: ['원본 이미지를 보며 내용을 직접 입력해 주세요.'], needs_review: true }] }, usage: null };
   }
 }
 
 export type AiOperation = 'suggestions' | 'flashcard_generation' | 'image_extraction';
 export class AiProviderError extends Error {
-  constructor(readonly operation: AiOperation, readonly upstreamStatus?: number) {
+  constructor(readonly operation: AiOperation, readonly upstreamStatus?: number, readonly usage?: AiUsageRecord | null) {
     super('AI provider request failed.'); this.name = 'AiProviderError';
   }
 }
@@ -77,27 +81,36 @@ export class OpenAiService implements AiService {
       throw new AiProviderError(operation, apiError?.status);
     }
   }
-  async suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, id: string): Promise<SuggestionsResponse> {
+  async suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, id: string): Promise<AiCallResult<SuggestionsResponse>> {
     const started = performance.now();
     const response = await this.request('suggestions', id, () => this.client.chat.completions.parse({
       model: this.model,
-      messages: [{ role: 'system', content: SUGGESTION_SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify(input) }],
+      messages: [
+        { role: 'system', content: SUGGESTION_SYSTEM_PROMPT },
+        { role: 'developer', content: SUGGESTION_DEVELOPER_PROMPT },
+        { role: 'user', content: JSON.stringify({ original_request: input.original_request,
+          refinement_request: input.refinement_request,
+          previous_titles: input.previous_suggestions.slice(-6).map((item: any) => typeof item?.title === 'string' ? item.title : '').filter(Boolean) }) },
+      ],
       response_format: responseFormat(SuggestionsResponseSchema, 'learning_suggestions'),
-      max_completion_tokens: 1600,
+      max_completion_tokens: 1400,
     }));
     const content = response.choices[0]?.message.parsed;
+    const usage = response.usage ? calculateAiUsage({ model: response.model,
+      inputTokens: response.usage.prompt_tokens, outputTokens: response.usage.completion_tokens,
+      totalTokens: response.usage.total_tokens, cachedInputTokens: response.usage.prompt_tokens_details?.cached_tokens }) : null;
     logMetric('ai_call', { request_id: id, kind: 'suggestions', duration_ms: Math.round(performance.now() - started), model: this.model });
     if (!content) {
       logMetric('ai_response_invalid', { request_id: id, operation: 'suggestions', model: this.model,
         openai_request_id: response._request_id ?? undefined, finish_reason: response.choices[0]?.finish_reason ?? 'missing',
         refused: Boolean(response.choices[0]?.message.refusal) });
-      throw new AiProviderError('suggestions');
+      throw new AiProviderError('suggestions', undefined, usage);
     }
-    try { return SuggestionsResponseSchema.parse(content); }
+    try { return { data: SuggestionsResponseSchema.parse(content), usage }; }
     catch (error) {
       logMetric('ai_response_invalid', { request_id: id, operation: 'suggestions', model: this.model,
         openai_request_id: response._request_id ?? undefined, error_type: error instanceof Error ? error.name : 'unknown' });
-      throw new AiProviderError('suggestions');
+      throw new AiProviderError('suggestions', undefined, usage);
     }
   }
   async generate(input: CreateSetRequest, id: string) {
@@ -105,21 +118,26 @@ export class OpenAiService implements AiService {
     const response = await this.request('flashcard_generation', id, () => this.client.chat.completions.parse({
       model: this.model, messages: [
         { role: 'system', content: FLASHCARD_SYSTEM_PROMPT },
+        { role: 'developer', content: FLASHCARD_DEVELOPER_PROMPT },
         { role: 'user', content: JSON.stringify({ original_request: input.original_request,
           selected_topic: input.selected_topic, learning_goal: input.learning_goal, card_count: 10, language: 'ko' }) },
       ], response_format: responseFormat(GeneratedSetSchema, 'learning_flashcards'),
-      max_completion_tokens: 6500,
+      max_completion_tokens: 5600,
     }));
     logMetric('ai_call', { request_id: id, kind: 'flashcard_generation', duration_ms: Math.round(performance.now() - started), model: this.model });
     const content = response.choices[0]?.message.parsed;
+    const usage = response.usage ? calculateAiUsage({ model: response.model,
+      inputTokens: response.usage.prompt_tokens, outputTokens: response.usage.completion_tokens,
+      totalTokens: response.usage.total_tokens, cachedInputTokens: response.usage.prompt_tokens_details?.cached_tokens }) : null;
     if (!content) {
       logMetric('ai_response_invalid', { request_id: id, operation: 'flashcard_generation', model: this.model,
         openai_request_id: response._request_id ?? undefined, finish_reason: response.choices[0]?.finish_reason ?? 'missing',
         refused: Boolean(response.choices[0]?.message.refusal) });
-      throw new AiProviderError('flashcard_generation');
+      throw new AiProviderError('flashcard_generation', undefined, usage);
     }
-    try { return GeneratedSetSchema.parse(content); }
+    try { return { data: GeneratedSetSchema.parse(content), usage }; }
     catch (error) {
+      if (error instanceof z.ZodError) Object.assign(error, { aiUsage: usage });
       logMetric('ai_response_invalid', { request_id: id, operation: 'flashcard_generation', model: this.model,
         openai_request_id: response._request_id ?? undefined, error_type: error instanceof Error ? error.name : 'unknown' });
       throw error;
@@ -131,22 +149,26 @@ export class OpenAiService implements AiService {
     const response = await this.request('image_extraction', id, () => this.client.chat.completions.parse({
       model: this.model,
       messages: [
-        { role: 'system', content: '이미지에 실제로 보이는 글자와 사실만 카드로 옮기세요. 지식이나 설명을 새로 만들지 마세요. 앞면과 뒷면을 구분하기 어렵거나 글자가 불명확하면 needs_review를 true로 표시하세요. 명확한 추론도 추가하지 마세요.' },
+        { role: 'system', content: IMAGE_EXTRACTION_SYSTEM_PROMPT },
+        { role: 'developer', content: IMAGE_EXTRACTION_DEVELOPER_PROMPT },
         { role: 'user', content: [
-          { type: 'text', text: '이미지를 학습 카드로 전사해 주세요. 최대 30개입니다.' },
+          { type: 'text', text: '이미지의 학습 항목을 보이는 순서대로 전사하세요. 항목은 최대 30개입니다.' },
           { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
         ] },
       ],
       response_format: responseFormat(ImageCardsSchema, 'photo_flashcards'),
-      max_completion_tokens: 4000,
+      max_completion_tokens: 3200,
     }));
     const content = response.choices[0]?.message.parsed;
+    const usage = response.usage ? calculateAiUsage({ model: response.model,
+      inputTokens: response.usage.prompt_tokens, outputTokens: response.usage.completion_tokens,
+      totalTokens: response.usage.total_tokens, cachedInputTokens: response.usage.prompt_tokens_details?.cached_tokens }) : null;
     logMetric('ai_call', { request_id: id, kind: 'image_extraction', duration_ms: Math.round(performance.now() - started), model: this.model });
     if (!content) {
       logMetric('ai_response_invalid', { request_id: id, operation: 'image_extraction', model: this.model,
         openai_request_id: response._request_id ?? undefined, finish_reason: response.choices[0]?.finish_reason ?? 'missing',
         refused: Boolean(response.choices[0]?.message.refusal) });
-      throw new AiProviderError('image_extraction');
+      throw new AiProviderError('image_extraction', undefined, usage);
     }
     const cards = content.cards.map((card: z.infer<typeof ImageCardsSchema>['cards'][number]) => ({ ...card, key: card.key.trim(), values: card.values.map((value: string) => value.trim()) }));
     const invalid = cards.some((card: z.infer<typeof ImageCardsSchema>['cards'][number]) => !card.key || card.key.length > 120 || card.values.length < 1 ||
@@ -154,8 +176,8 @@ export class OpenAiService implements AiService {
     if (invalid) {
       logMetric('ai_response_invalid', { request_id: id, operation: 'image_extraction', model: this.model,
         openai_request_id: response._request_id ?? undefined, error_type: 'local_validation' });
-      throw new AiProviderError('image_extraction');
+      throw new AiProviderError('image_extraction', undefined, usage);
     }
-    return { cards };
+    return { data: { cards }, usage };
   }
 }

@@ -4,7 +4,7 @@ import { api, type ImportPreview } from '../lib/api';
 import { Button, Card, Input } from './ui';
 
 type ImportSource = 'PHOTO' | 'TEXT' | 'EXCEL';
-type Ready = { title: string; cards: Flashcard[]; sourceMode: ImportSource; issues: ImportPreview['issues']; reviewIndexes?: number[] };
+type Ready = { title: string; cards: Flashcard[]; sourceMode: ImportSource; issues: ImportPreview['issues']; reviewIndexes?: number[]; aiUsageSessionId?: string; aiUsageSessionToken?: string };
 type SheetMeta = { name: string; columns: { index: number; name: string }[]; preview: string[][] };
 
 export function ImportPanel({ onReady, onCancel }: { onReady: (ready: Ready) => void; onCancel: () => void }) {
@@ -57,11 +57,12 @@ export function ImportPanel({ onReady, onCancel }: { onReady: (ready: Ready) => 
     setBusy(true); setError('');
     try {
       if (!title.trim()) throw new Error('콘텐츠 제목을 입력해 주세요.');
-      let result: ImportPreview, reviewIndexes: number[] = [];
+      let result: ImportPreview, reviewIndexes: number[] = [], aiUsageSessionId: string | undefined, aiUsageSessionToken: string | undefined;
       if (mode === 'PHOTO') {
         if (!file) throw new Error('사진을 선택해 주세요.');
         if (file.size > 8 * 1024 * 1024) throw new Error('사진은 8MB 이하만 업로드할 수 있습니다.');
-        const extracted = await api.extractPhoto(file); result = { cards: extracted.cards, issues: [] }; reviewIndexes = extracted.review_card_indexes;
+        const extracted = await api.extractPhoto(file); result = { cards: extracted.cards, issues: [] };
+        reviewIndexes = extracted.review_card_indexes; aiUsageSessionId = extracted.ai_usage_session_id; aiUsageSessionToken = extracted.ai_usage_session_token;
       } else if (mode === 'TEXT') {
         const source = file ? new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer()) : text;
         if (!source.trim()) throw new Error('TXT 파일을 선택하거나 텍스트를 붙여넣어 주세요.');
@@ -72,7 +73,7 @@ export function ImportPanel({ onReady, onCancel }: { onReady: (ready: Ready) => 
         result = await api.parseExcel(file, sheetName, keyColumn, valueColumns);
       }
       if (!result.cards.length && !result.issues.length) throw new Error('가져올 카드가 없습니다.');
-      onReady({ title: title.trim(), cards: result.cards, sourceMode: mode, issues: result.issues, reviewIndexes });
+      onReady({ title: title.trim(), cards: result.cards, sourceMode: mode, issues: result.issues, reviewIndexes, aiUsageSessionId, aiUsageSessionToken });
     } catch (reason) { setError(reason instanceof Error ? reason.message : '가져오기를 준비하지 못했습니다.'); }
     finally { setBusy(false); }
   }

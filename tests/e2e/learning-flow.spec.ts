@@ -36,3 +36,60 @@ test('search existing content and complete a mocked learning flow', async ({ pag
   await page.getByRole('button', { name: /AI에게 학습 주제 추천받기/ }).click();
   await expect(page.getByRole('heading', { name: /피아노에 대해 어떤 내용을 학습하고 싶으세요/ })).toBeVisible();
 });
+
+test('keeps a single visible topic-input focus ring on desktop and mobile', async ({ page }) => {
+  await page.goto('/');
+  const input = page.getByRole('textbox', { name: '학습 주제 입력' });
+  for (const viewport of [{ width: 1365, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await input.click();
+    await page.waitForTimeout(250);
+    const focusStyles = await input.evaluate(element => ({
+      focused: document.activeElement === element,
+      wrapperHasFocus: element.closest('.search-box')!.matches(':focus-within'),
+      outlineStyle: getComputedStyle(element).outlineStyle,
+      inputShadow: getComputedStyle(element).boxShadow,
+      wrapperShadow: getComputedStyle(element.closest('.search-box')!).boxShadow,
+      wrapperBorder: getComputedStyle(element.closest('.search-box')!).borderColor,
+    }));
+    expect(focusStyles.focused).toBe(true);
+    expect(focusStyles.wrapperHasFocus).toBe(true);
+    expect(focusStyles.outlineStyle).toBe('none');
+    expect(focusStyles.inputShadow).toBe('none');
+    expect(focusStyles.wrapperShadow).toContain('0px 0px 0px 4px');
+    expect(focusStyles.wrapperBorder).toBe('rgb(165, 154, 232)');
+  }
+});
+
+test('shows recorded AI usage and leaves older content without usage blank', async ({ page }) => {
+  const timestamp = '2026-10-15T00:00:00.000Z';
+  await page.route(/\/api\/learning-sets\?/, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+    results: [
+      { id: crypto.randomUUID(), title: '사용량 기록 콘텐츠', original_request: '테스트', status: 'COMPLETED',
+        created_at: timestamp, updated_at: timestamp, source_mode: 'AI', card_count: 10, preview: [], can_edit: false,
+        ai_usage: { input_tokens: 1000, output_tokens: 250, total_tokens: 1250, cached_input_tokens: 0,
+          estimated_usd: 0.0015, estimated_krw: 2.01, models: ['gpt-4o-mini'], operations: ['suggestions', 'flashcard_generation'],
+          pricing_as_of: ['2026-10-15'], fx_rate_as_of: ['2026-10-13'], fx_rate_source: ['Federal Reserve H.10 / FRED DEXKOUS'],
+          model_rates: [{ model: 'gpt-4o-mini', input_usd_per_million: 0.15, cached_input_usd_per_million: 0.075,
+            output_usd_per_million: 0.6, pricing_as_of: '2026-10-15' }],
+          fx_rates: [{ usd_krw_rate: 1342.13, as_of: '2026-10-13', source: 'Federal Reserve H.10 / FRED DEXKOUS' }] } },
+      { id: crypto.randomUUID(), title: '기존 사용량 미기록 콘텐츠', original_request: '테스트', status: 'COMPLETED',
+        created_at: timestamp, updated_at: timestamp, source_mode: 'AI', card_count: 10, preview: [], can_edit: false },
+      { id: crypto.randomUUID(), title: 'null 사용량 콘텐츠', original_request: '테스트', status: 'COMPLETED',
+        created_at: timestamp, updated_at: timestamp, source_mode: 'AI', card_count: 10, preview: [], can_edit: false,
+        ai_usage: { input_tokens: null, output_tokens: null, total_tokens: null, cached_input_tokens: null,
+          estimated_usd: null, estimated_krw: null, models: null, operations: null, pricing_as_of: null,
+          fx_rate_as_of: null, fx_rate_source: null, model_rates: null, fx_rates: null } },
+    ], total: 2, page: 1, page_size: 20, total_pages: 1,
+  }) }));
+  await page.goto('/');
+  await page.getByRole('button', { name: '학습 콘텐츠 목록' }).click();
+  await expect(page.locator('.content-row')).toHaveCount(3);
+  const recorded = page.locator('.content-row').filter({ hasText: '사용량 기록 콘텐츠' }).locator('.content-meta');
+  await expect(recorded).toContainText('크레딧 1,250 tokens · 약 2원');
+  await expect(recorded.locator('.ai-cost')).toHaveAttribute('title', /입력 1,000[\s\S]*출력 250[\s\S]*1342.13/);
+  const legacy = page.locator('.content-row').filter({ hasText: '기존 사용량 미기록 콘텐츠' }).locator('.content-meta');
+  await expect(legacy).not.toContainText('크레딧');
+  const nullUsage = page.locator('.content-row').filter({ hasText: 'null 사용량 콘텐츠' }).locator('.content-meta');
+  await expect(nullUsage).not.toContainText('크레딧');
+});
