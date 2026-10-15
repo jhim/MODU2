@@ -81,3 +81,58 @@ npm run test:e2e
 ```
 
 `npm test`는 Vitest 단위 테스트와 API 통합 테스트를 실행합니다. E2E는 Playwright Chromium, `MODU2_MODE=mock`, 메모리 저장소를 사용합니다. 최초 실행 시 브라우저가 필요하면 `npx playwright install chromium`으로 설치하세요.
+
+## 학습 콘텐츠 관리 및 계정
+
+2차 기능은 기존 학습 검색·AI 추천·10장 생성·학습 흐름을 유지하면서 공개 콘텐츠 목록과 본인 콘텐츠 관리를 추가합니다.
+
+- 회원가입/로그인은 Supabase Auth 이메일·비밀번호를 사용합니다. 이메일 인증과 비밀번호 재설정 메일을 사용하므로 Supabase Auth의 Site URL 및 Redirect URLs에 로컬 주소와 Railway 도메인을 등록하세요.
+- 기존 202610150001_init_modu2.sql은 다시 실행하지 마세요. 배포 전 MODU2 전용 Supabase SQL Editor에서 [202610150002_content_management.sql](supabase/migrations/202610150002_content_management.sql)을 검토 후 한 번만 적용해야 합니다. 운영 DB에는 여기서 적용하지 않았습니다.
+- 증분 마이그레이션은 owner_id와 source_mode 컬럼, 목록 RPC, 사용자 소유 콘텐츠 생성·수정·삭제 RPC를 추가합니다. 기존 소유자 없는 COMPLETED 콘텐츠는 그대로 공개 읽기 전용으로 남습니다.
+- anon/authenticated 직접 쓰기 권한은 부여하지 않습니다. 서버가 Supabase Auth JWT를 검증한 뒤, 검증된 사용자 ID와 콘텐츠 소유자를 RPC 안에서 함께 확인합니다. 수정은 행 잠금과 updated_at 버전 비교를 거쳐 카드 전체를 원자적으로 바꿉니다.
+- 로그아웃 또는 비로그인 상태에서는 공개 콘텐츠를 검색·학습하고, AI 카드나 파일 추출 결과를 임시로 검토할 수 있습니다. 서버에는 저장되지 않으며, 영구 저장 시 로그인을 요구합니다.
+- JPG/PNG/WebP 이미지는 최대 8MB, 30MP 이하이며, TXT는 UTF-8 최대 2MB, XLSX 업로드는 5MB·500행·16열 한도입니다. 이미지 원본은 저장하지 않습니다. XLSX 수식은 실행하지 않고 수식 셀을 포함한 파일은 거부합니다.
+- TXT와 XLSX는 key_text, value_1 … value_6 표준 열을 사용합니다. 내보낸 파일을 다시 가져오면 카드 값과 순서를 복원합니다.
+
+## 2차 운영 환경변수
+
+Railway의 Build Variables와 Runtime Variables에 아래 설정을 분리해 입력하세요. 공개 VITE_ 값은 브라우저 빌드에 포함되지만, anon key는 공개 클라이언트 키입니다. service role과 OpenAI 비밀키는 서버 변수로만 둡니다.
+
+| 변수 | 구분 | 설명 |
+| --- | --- | --- |
+| MODU2_MODE | 빌드/런타임 | production; mock/메모리 자동 전환 금지 |
+| OPENAI_API_KEY | 런타임 비밀 | 서버에서 AI 추천·생성·이미지 인식에 사용 |
+| OPENAI_MODEL | 런타임 | Structured Outputs와 이미지 입력을 지원하는 모델, 기본 gpt-4o-mini |
+| SUPABASE_URL | 런타임 | MODU2 전용 Supabase URL |
+| SUPABASE_SERVICE_ROLE_KEY | 런타임 비밀 | 서버 전용 데이터 접근 및 RPC 호출 |
+| VITE_SUPABASE_URL | 빌드 공개 | 브라우저 Supabase Auth URL |
+| VITE_SUPABASE_ANON_KEY | 빌드 공개 | 브라우저 로그인용 공개 anon key |
+
+로컬 mock에서 Supabase 로그인·JWT 검증을 시험할 때는 .env에 SUPABASE_ANON_KEY도 설정합니다. 이는 공개 anon key이며 service role key로 대체하지 않습니다. mock 데이터는 메모리에만 남고 재시작하면 사라집니다. VITE_ 값이 없으면 프론트 로그인 UI가 비활성화됩니다.
+
+## 파일 업로드 및 AI 보호
+
+- AI 요청은 IP당 분당 최대 10회, 사진 인식은 분당 최대 3회로 제한합니다.
+- 사진 원본 8MB 및 30MP 제한, XLSX 최대 5MB와 압축 해제 크기 제한, TXT 최대 2MB로 메모리·비용을 제한합니다.
+- OpenAI 클라이언트는 30초 타임아웃과 1회 재시도를 사용합니다. 추천 응답은 최대 1,600 completion token, AI 카드 생성은 6,500, 사진 추출은 4,000으로 제한합니다. OpenAI 클라이언트는 요청당 30초 타임아웃과 최대 1회 재시도를 적용합니다. OpenAI 프로젝트의 월 사용량 한도와 알림도 설정하세요.
+- 파일명, 카드 본문, 사진, API 키는 로그에 기록하지 않습니다. 사진 인식 결과에서 불확실한 카드는 검토 표시 후 사용자가 저장 전에 확인합니다.
+
+### 편집 버전 복구
+
+소유 콘텐츠를 수정할 때 기존 제목, 출처, 카드 전체가 `learning_set_revision`에 같은 DB 트랜잭션으로 저장됩니다. 이전 버전 확인과 복구는 MODU2 Supabase SQL Editor에서 다음처럼 할 수 있습니다.
+
+```sql
+select revision_id, saved_at, title
+from public.learning_set_revision
+where learning_set_id = '<콘텐츠 UUID>' and owner_id = '<소유자 UUID>'
+order by saved_at desc;
+
+select public.restore_owned_learning_set_revision(
+  '<소유자 UUID>'::uuid,
+  '<콘텐츠 UUID>'::uuid,
+  '<복구할 revision_id>'::uuid,
+  (select updated_at from public.learning_set where id = '<콘텐츠 UUID>'::uuid)
+);
+```
+
+복구 함수도 소유자 확인, 행 잠금, 최신 `updated_at` 비교를 수행합니다. 공개 역할에는 스냅샷 테이블이나 복구 RPC 권한을 주지 않습니다.
