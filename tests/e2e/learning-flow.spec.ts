@@ -1,5 +1,37 @@
 import { expect, test } from '@playwright/test';
 
+test('home examples show concrete topics and pass the complete selected scope to recommendations', async ({ page }) => {
+  const topics = ['와인의 역사', '악보의 기본 구성 요소', '17세기 세계사', '초등학교 4학년 영어 단어'];
+  await page.goto('/');
+  const input = page.getByRole('textbox', { name: '학습 주제 입력' });
+  await expect(input).toHaveAttribute('placeholder', '예: 와인의 역사, 악보의 기본 구성 요소, 17세기 세계사');
+  const sampleButtons = page.locator('.topic-samples button');
+  await expect(sampleButtons).toHaveText(topics);
+
+  for (const topic of topics) {
+    await page.getByRole('button', { name: topic, exact: true }).click();
+    await expect(input).toHaveValue(topic);
+    const suggestionRequest = page.waitForRequest(request => request.url().endsWith('/api/ai/suggestions'));
+    await page.getByRole('button', { name: /AI에게 학습 주제 추천받기/ }).click();
+    const request = await suggestionRequest;
+    expect(request.postDataJSON().original_request).toBe(topic);
+    await expect(page.getByRole('heading', { name: new RegExp(topic) })).toBeVisible();
+    await page.getByRole('button', { name: '← 처음으로' }).click();
+  }
+
+  await page.setViewportSize({ width: 320, height: 700 });
+  const buttonBounds = await sampleButtons.evaluateAll(elements => elements.map(element => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, width: rect.width, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
+  }));
+  expect(buttonBounds).toHaveLength(4);
+  for (const bounds of buttonBounds) {
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(320);
+    expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.clientWidth + 1);
+  }
+});
+
 test('search existing content and complete a mocked learning flow', async ({ page, request }) => {
   const seed = await request.post('/api/learning-sets', { data: {
     original_request: '와인', selected_topic: '와인 기초 지식', learning_goal: '와인의 기본 개념을 이해한다',

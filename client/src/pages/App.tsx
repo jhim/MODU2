@@ -11,6 +11,7 @@ import { Button, Card, Input } from '../components/ui';
 type Screen = 'home' | 'suggestions' | 'generating' | 'study' | 'library' | 'editor' | 'import' | 'auth';
 type Draft = { title: string; cards: Flashcard[]; sourceMode: SourceMode; issues: { row: number; message: string }[]; reviewIndexes?: number[]; aiUsageSessionId?: string; aiUsageSessionToken?: string };
 type SaveDraft = { draft: Draft; id?: string; expectedUpdatedAt?: string };
+const SAMPLE_TOPICS = ['와인의 역사', '악보의 기본 구성 요소', '17세기 세계사', '초등학교 4학년 영어 단어'];
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home');
   const [session, setSession] = useState<Session | null>(null);
@@ -199,7 +200,7 @@ export default function App() {
       <div className={'search-wrap ' + (showResults && results.length > 0 ? 'has-results' : '')}>
         <div className="search-box"><span className="search-icon">⌕</span><Input value={query} onChange={event => { setQuery(event.target.value); setShowResults(true); setError(''); }}
           onFocus={() => setShowResults(true)} onKeyDown={event => { if (event.key === 'Enter') void recommend('', query.trim()); if (event.key === 'Escape') setShowResults(false); }}
-          placeholder="예: 와인, 피아노, 세계사" aria-label="학습 주제 입력" maxLength={200} />
+          placeholder="예: 와인의 역사, 악보의 기본 구성 요소, 17세기 세계사" aria-label="학습 주제 입력" maxLength={200} />
           {query && <button className="clear-button" onClick={() => setQuery('')} aria-label="입력 지우기">×</button>}
         </div>
         {showResults && query.trim().length > 0 && results.length > 0 && <Card className="suggestion-dropdown" role="listbox" aria-label="기존 학습 콘텐츠">
@@ -215,7 +216,7 @@ export default function App() {
         <Button variant="outline" onClick={openNewImport}>사진 · TXT · Excel · 붙여넣기</Button>
       </div>
       {error && <p className="error-message" role="alert">{error}</p>}
-      <div className="topic-samples"><span>이런 주제는 어때요?</span>{['와인', '피아노', '세계사', '영어 단어'].map(topic => <button key={topic} onClick={() => setQuery(topic)}>{topic}</button>)}</div>
+      <div className="topic-samples"><span>이런 주제는 어때요?</span>{SAMPLE_TOPICS.map(topic => <button key={topic} onClick={() => setQuery(topic)}>{topic}</button>)}</div>
       <div className="home-foot"><span>✦</span> 관심에서 시작하는 나만의 학습</div>
     </main>}
 
