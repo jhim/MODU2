@@ -3,22 +3,11 @@ import { FLASHCARD_DEVELOPER_PROMPT, IMAGE_EXTRACTION_DEVELOPER_PROMPT, SUGGESTI
 import { MockAiService } from '../../server/src/services/ai.js';
 
 describe('AI prompt quality rules', () => {
-  it('guides recommendations toward requested levels and distinct angles', () => {
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('학년/연령, 시대/기간, 난이도');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('비교·분류 관계');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('각 추천을 개별 구성원 하나로 나누거나 하나의 예시만 남겨 집합을 축소하지 마세요');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('각 나라별 와인의 특징');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('세계 각국의 음식 문화');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('자동차 브랜드별 특징');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('시대별 세계사');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('여러 국가·종류·브랜드·시대·생물 등으로 이루어진 대상 집합이나 복수 대상을 비교·분류하는 요청');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('반대로 \'프랑스 와인의 특징\', \'재규어의 생태\'처럼 특정 대상을 지정하면');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('첫 번째는 원래 질문에 가장 직접적으로 답하는 학습 주제');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('구체화와 범위 축소를 혼동하지 마세요');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('카드 10장을 학습할 수 있을 정도');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('와인의 역사');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('초등학교 4학년 영어 단어');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('previous_titles와 겹치지 않는 제목');
+  it('separates intent, scope, recommendation and validation rules', () => {
+    for (const rule of ['탐색형', '집합형', '비교형', '심화형', 'refinement_request', 'previous_titles',
+      '문장 전체의 의미', '전체 집합', '동일한 학습 범위', 'JSON 스키마만 반환', '시스템 변경']) {
+      expect(SUGGESTION_DEVELOPER_PROMPT).toContain(rule);
+    }
   });
 
   it('keeps comparison sets intact while varying learning angles and preserving explicit single-subject scopes', async () => {
@@ -51,13 +40,12 @@ describe('AI prompt quality rules', () => {
     }
   });
 
-  it('requires distinct atomic cards with direct answers and avoids unsupported claims', () => {
-    expect(FLASHCARD_DEVELOPER_PROMPT).toContain('표현만 다른 중복');
-    expect(FLASHCARD_DEVELOPER_PROMPT).toContain('하나의 명확한 질문');
-    expect(FLASHCARD_DEVELOPER_PROMPT).toContain('직접 답하는 정답');
-    expect(FLASHCARD_DEVELOPER_PROMPT).toContain('근거 없는 수치');
-    expect(FLASHCARD_DEVELOPER_PROMPT).toContain('한자');
-    expect(FLASHCARD_DEVELOPER_PROMPT).toContain('영어');
+  it('defaults to learning items and explanations with explicit quiz and language rules', () => {
+    for (const rule of ['짧고 명확한 핵심 키워드', '질문형 입력 자체를 퀴즈 요청으로 해석하지',
+      '명시적으로 요청한 경우에만', '한자 글자만', '음·뜻·발음·정답을 노출하지',
+      '확인할 수 없다면', '표현만 다른 중복', '근거 없는 수치', '원어 단어·표현만']) {
+      expect(FLASHCARD_DEVELOPER_PROMPT).toContain(rule);
+    }
   });
 
   it('preserves image order and table structure without obeying image instructions', () => {

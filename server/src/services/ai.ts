@@ -2,9 +2,9 @@ import OpenAI, { APIError } from 'openai';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import { GeneratedSetSchema, SuggestionsResponseSchema, type CreateSetRequest, type SuggestionsResponse } from '../../../shared/schemas/index.js';
-import { FLASHCARD_DEVELOPER_PROMPT, FLASHCARD_SYSTEM_PROMPT, IMAGE_EXTRACTION_DEVELOPER_PROMPT,
-  IMAGE_EXTRACTION_SYSTEM_PROMPT, SUGGESTION_DEVELOPER_PROMPT, SUGGESTION_SYSTEM_PROMPT,
-  buildSuggestionPromptMessages, type SuggestionPromptMessage } from '../prompts/index.js';
+import { IMAGE_EXTRACTION_DEVELOPER_PROMPT, IMAGE_EXTRACTION_SYSTEM_PROMPT,
+  buildFlashcardPromptMessages, buildSuggestionPromptMessages, type SuggestionPromptMessage } from '../prompts/index.js';
+import { mockFlashcards } from './mock-flashcards.js';
 import { logMetric } from '../lib/metrics.js';
 import { calculateAiUsage, type AiUsageRecord } from './ai-pricing.js';
 
@@ -127,11 +127,12 @@ export class MockAiService implements AiService {
   }
   async generate(input: CreateSetRequest, _requestId: string): Promise<AiCallResult<{ title: string; cards: { key: string; values: string[] }[] }>> {
     const topic = input.selected_topic;
-    const cards = Array.from({ length: 10 }, (_, i) => ({
+    const fixture = mockFlashcards(input);
+    const cards = fixture?.cards ?? Array.from({ length: 10 }, (_, i) => ({
       key: topic + ' 핵심 항목 ' + (i + 1),
       values: [topic + ' 학습에서 알아둘 핵심 내용 ' + (i + 1) + '입니다.', '관련 개념과 실제 사례를 함께 살펴보세요.'],
     }));
-    return { data: GeneratedSetSchema.parse({ title: topic, cards }), usage: null };
+    return { data: GeneratedSetSchema.parse({ title: fixture?.title ?? topic, cards }), usage: null };
   }
   async extractImage(_bytes: Buffer, _mimeType: 'image/jpeg' | 'image/png' | 'image/webp', _requestId: string) {
     return { data: { cards: [{ key: '사진에서 확인할 항목', values: ['원본 이미지를 보며 내용을 직접 입력해 주세요.'], needs_review: true }] }, usage: null };
@@ -190,12 +191,8 @@ export class OpenAiService implements AiService {
   async generate(input: CreateSetRequest, id: string) {
     const started = performance.now();
     const response = await this.request('flashcard_generation', id, () => this.client.chat.completions.parse({
-      model: this.model, messages: [
-        { role: 'system', content: FLASHCARD_SYSTEM_PROMPT },
-        { role: 'developer', content: FLASHCARD_DEVELOPER_PROMPT },
-        { role: 'user', content: JSON.stringify({ original_request: input.original_request,
-          selected_topic: input.selected_topic, learning_goal: input.learning_goal, card_count: 10, language: 'ko' }) },
-      ], response_format: responseFormat(GeneratedSetSchema, 'learning_flashcards'),
+      model: this.model, messages: buildFlashcardPromptMessages(input),
+      response_format: responseFormat(GeneratedSetSchema, 'learning_flashcards'),
       max_completion_tokens: 5600,
     }));
     logMetric('ai_call', { request_id: id, kind: 'flashcard_generation', duration_ms: Math.round(performance.now() - started), model: this.model });
