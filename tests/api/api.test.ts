@@ -105,8 +105,10 @@ describe('MODU2 API', () => {
     expect(body.suggestions.length).toBeLessThanOrEqual(3);
     expect(body.message).toContain('음식 페어링');
     expect(body.request_prompt[1].content).toContain('사용자가 지정한 조건은');
-    expect(body.request_prompt[1].content).toContain('여러 대상의 집합이나 복수 대상을 묻는 질문은 그 집합 전체가 학습 범위');
+    expect(body.request_prompt[1].content).toContain('여러 국가·종류·브랜드·시대·생물 등으로 이루어진 대상 집합이나 복수 대상을 비교·분류하는 요청');
     expect(body.request_prompt[1].content).toContain('첫 번째는 원래 질문에 가장 직접적으로 답하는 학습 주제');
+    expect(body.request_prompt[1].content).toContain('여러 국가·종류·브랜드·시대·생물 등으로 이루어진 대상 집합');
+    expect(body.request_prompt[1].content).toContain('비교 집합은 유지하되 관점은 달리하세요');
     expect(body.request_prompt).toMatchObject([
       { role: 'system' }, { role: 'developer' }, { role: 'user', content: expect.stringContaining('"original_request":"와인"') },
     ]);
@@ -128,7 +130,8 @@ describe('MODU2 API', () => {
     await new Promise<void>(resolve => promptServer.once('listening', resolve));
     const url = `http://127.0.0.1:${(promptServer.address() as any).port}`;
     try {
-      const examples = ['열대 우림의 대표적인 포유류는', '열대 우림에 사는 동물', '재규어의 생태', '와인', '17세기 세계사', '초등학교 4학년 영어 단어'];
+      const examples = ['각 나라별 와인의 특징', '열대 우림의 대표적인 포유류는?', '세계 각국의 음식 문화',
+        '자동차 브랜드별 특징', '시대별 세계사', '프랑스 와인의 특징', '재규어의 생태', '17세기 세계사'];
       for (const original_request of examples) {
         const response = await fetch(`${url}/api/ai/suggestions`, { method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ original_request, refinement_request: '', previous_suggestions: [] }) });
