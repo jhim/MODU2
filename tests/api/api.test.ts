@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createApp } from '../../server/src/app.js';
+import OpenAI from 'openai';
+import { createApp, getTrustProxySetting } from '../../server/src/app.js';
 import { MemoryLearningRepository } from '../../server/src/repositories/memory.js';
-import { MockAiService } from '../../server/src/services/ai.js';
+import { MockAiService, OpenAiService } from '../../server/src/services/ai.js';
 import { GeneratedSetSchema } from '../../shared/schemas/index.js';
 
 const repository = new MemoryLearningRepository();
@@ -36,6 +37,63 @@ describe('MODU2 API', () => {
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(body.results.some((result: { id: string }) => result.id === created.set.id)).toBe(true);
+  });
+  it('trusts exactly one Railway ingress hop and leaves local mock untrusted', () => {
+    expect(getTrustProxySetting({ MODU2_MODE: 'production', RAILWAY_ENVIRONMENT_NAME: 'production' } as NodeJS.ProcessEnv)).toBe(1);
+    expect(getTrustProxySetting({ MODU2_MODE: 'mock', RAILWAY_ENVIRONMENT_NAME: 'production' } as NodeJS.ProcessEnv)).toBe(false);
+    expect(getTrustProxySetting({ MODU2_MODE: 'mock', NODE_ENV: 'development' } as NodeJS.ProcessEnv)).toBe(false);
+  });
+  it('uses the Railway client IP for per-IP suggestion rate limits', async () => {
+    const previousName = process.env.RAILWAY_ENVIRONMENT_NAME;
+    const previousMode = process.env.MODU2_MODE;
+    process.env.RAILWAY_ENVIRONMENT_NAME = 'test';
+    process.env.MODU2_MODE = 'production';
+    const railwayApp = createApp({ ai: new MockAiService(), repository: new MemoryLearningRepository() });
+    if (previousName === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME;
+    else process.env.RAILWAY_ENVIRONMENT_NAME = previousName;
+    if (previousMode === undefined) delete process.env.MODU2_MODE;
+    else process.env.MODU2_MODE = previousMode;
+    expect(railwayApp.get('trust proxy')).toBe(1);
+    const railwayServer = railwayApp.listen(0);
+    await new Promise<void>(resolve => railwayServer.once('listening', resolve));
+    const url = `http://127.0.0.1:${(railwayServer.address() as any).port}/api/ai/suggestions`;
+    const payload = JSON.stringify({ original_request: '와인', refinement_request: '', previous_suggestions: [] });
+    const send = (ip: string) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: payload });
+    try {
+      for (let i = 0; i < 10; i++) expect((await send('198.51.100.10')).status).toBe(200);
+      expect((await send('198.51.100.10')).status).toBe(429);
+      expect((await send('198.51.100.11')).status).toBe(200);
+    } finally { await new Promise<void>(resolve => railwayServer.close(() => resolve())); }
+  });
+  it('returns a safe retryable error and logs OpenAI diagnostics without request data', async () => {
+    let outbound: Record<string, unknown> | undefined;
+    const fakeClient = new OpenAI({ apiKey: 'test-key', maxRetries: 0, fetch: async (_input, init) => {
+      outbound = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({ error: { message: 'private prompt text', type: 'invalid_request_error',
+        param: 'model', code: 'model_not_supported' } }), { status: 400, headers: { 'content-type': 'application/json', 'x-request-id': 'req_test_safe' } });
+    } });
+    const service = new OpenAiService('test-key', 'unsupported-model', fakeClient);
+    const appWithOpenAiError = createApp({ ai: service, repository: new MemoryLearningRepository() });
+    const openAiServer = appWithOpenAiError.listen(0);
+    await new Promise<void>(resolve => openAiServer.once('listening', resolve));
+    const url = `http://127.0.0.1:${(openAiServer.address() as any).port}/api/ai/suggestions`;
+    const log = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ original_request: 'private prompt text', refinement_request: '', previous_suggestions: [] }) });
+      const body = await response.json();
+      expect(response.status).toBe(503);
+      expect(body.error).toContain('AI 주제 추천');
+      expect(outbound?.model).toBe('unsupported-model');
+      expect((outbound?.response_format as { type?: string })?.type).toBe('json_schema');
+      const diagnostics = log.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+      const entry = diagnostics.find(item => item.event === 'ai_error');
+      expect(entry).toMatchObject({ openai_error_code: 'model_not_supported', upstream_status: 400, openai_request_id: 'req_test_safe' });
+      expect(JSON.stringify(diagnostics)).not.toContain('private prompt text');
+    } finally {
+      log.mockRestore();
+      await new Promise<void>(resolve => openAiServer.close(() => resolve()));
+    }
   });
   it('returns 2–3 recommendations and accepts refinement context', async () => {
     const response = await fetch(`${baseUrl}/api/ai/suggestions`, { method: 'POST', headers: { 'content-type': 'application/json' },

@@ -26,6 +26,8 @@ Railway 서비스의 Variables에서 설정합니다. Railway가 `PORT`를 주�
 | `SUPABASE_SERVICE_ROLE_KEY` | 서버 전용 비밀키 |
 | `LOG_LEVEL` | 선택사항, 기본값 `info` |
 
+`OPENAI_MODEL`은 Chat Completions와 JSON Schema Structured Outputs(`response_format: json_schema`)를 지원하는 모델이어야 합니다. 기본값은 `gpt-4o-mini`이며 앱은 별도의 temperature나 모델별 토큰 파라미터를 보내지 않습니다. OpenAI 오류는 요청 ID, 상태 및 오류 코드만 서버 로그에 남기고 사용자에게는 재시도 안내를 반환합니다. Railway 운영 모드에서는 ingress 프록시 한 홉만 신뢰해 IP별 rate limit을 적용하며 로컬/mock 모드는 forwarded IP를 신뢰하지 않습니다.
+
 `OPENAI_API_KEY` 및 `SUPABASE_SERVICE_ROLE_KEY`는 Railway Variables에만 입력하세요. 브라우저 코드에서는 이 키들을 읽지 않으며, `VITE_` 접두사로 설정하지 마세요. `.env`와 `.env.*`는 Git에서 제외되고 `.env.example`만 포함됩니다.
 
 Supabase 마이그레이션은 자동 실행되지 않으며 Railway의 pre-deploy command도 설정하지 않았습니다. 신규 MODU2 DB에 마이그레이션이 이미 적용되었는지 확인하고, 배포 과정에서 SQL을 재실행하지 마세요.

@@ -3,13 +3,21 @@ import express, { type ErrorRequestHandler } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { ZodError } from 'zod';
 import { CreateSetRequestSchema, SearchQuerySchema, SuggestionRequestSchema, type CreateSetRequest } from '../../shared/schemas/index.js';
-import type { AiService } from './services/ai.js';
+import { AiProviderError, type AiService } from './services/ai.js';
 import type { LearningRepository } from './repositories/types.js';
 import { logMetric, requestId as newRequestId } from './lib/metrics.js';
+
+export function getTrustProxySetting(env: NodeJS.ProcessEnv = process.env): number | false {
+  const isRailwayProduction = env.MODU2_MODE === 'production'
+    && Boolean(env.RAILWAY_ENVIRONMENT_NAME || env.RAILWAY_ENVIRONMENT_ID || env.RAILWAY_ENVIRONMENT);
+  return isRailwayProduction ? 1 : false;
+}
 
 export function createApp(deps: { ai: AiService; repository: LearningRepository; enableTestRoutes?: boolean }) {
   const app = express();
   app.disable('x-powered-by');
+  // Trust only Railway's single ingress hop; local/mock runs do not trust forwarded headers.
+  app.set('trust proxy', getTrustProxySetting());
   app.use(express.json({ limit: '16kb' }));
   app.use((req, res, next) => {
     const id = newRequestId(); const started = performance.now();
@@ -76,7 +84,7 @@ export function createApp(deps: { ai: AiService; repository: LearningRepository;
           if (validation.success) { generated = validation.data; break; }
           logMetric('generation_retry', { request_id: res.locals.requestId, attempt: attempt + 1 });
         }
-        if (!generated) throw new Error('Generated content failed validation.');
+        if (!generated) throw new AiProviderError('flashcard_generation');
         logMetric('json_validation', { request_id: res.locals.requestId, duration_ms: Math.round(validationTime) });
         const dbStarted = performance.now();
         const completed = await deps.repository.complete(reservation.set.id, generated.title, generated.cards);
@@ -117,6 +125,13 @@ export function createApp(deps: { ai: AiService; repository: LearningRepository;
   });
   const errors: ErrorRequestHandler = (error, _req, res, _next) => {
     const id = res.locals.requestId;
+    if (error instanceof AiProviderError) {
+      logMetric('api_error', { request_id: id, error_type: error.name, upstream_status: error.upstreamStatus });
+      const message = error.operation === 'suggestions'
+        ? 'AI 주제 추천을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'
+        : '학습 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+      return res.status(503).json({ error: message, request_id: id });
+    }
     logMetric('api_error', { request_id: id, error_type: error instanceof Error ? error.name : 'unknown' });
     res.status(500).json({ error: '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.', request_id: id });
   };

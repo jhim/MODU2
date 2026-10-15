@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import OpenAI, { APIError } from 'openai';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { GeneratedSetSchema, SuggestionsResponseSchema, type CreateSetRequest, type SuggestionsResponse } from '../../../shared/schemas/index.js';
 import { FLASHCARD_SYSTEM_PROMPT, SUGGESTION_SYSTEM_PROMPT } from '../prompts/index.js';
@@ -31,26 +31,68 @@ export class MockAiService implements AiService {
   }
 }
 
+export type AiOperation = 'suggestions' | 'flashcard_generation';
+
+export class AiProviderError extends Error {
+  constructor(readonly operation: AiOperation, readonly upstreamStatus?: number) {
+    super('AI provider request failed.');
+    this.name = 'AiProviderError';
+  }
+}
+
 export class OpenAiService implements AiService {
   private readonly client: OpenAI;
-  constructor(apiKey: string, private readonly model: string) { this.client = new OpenAI({ apiKey }); }
+  constructor(apiKey: string, private readonly model: string, client?: OpenAI) {
+    this.client = client ?? new OpenAI({ apiKey, timeout: 30_000, maxRetries: 1 });
+  }
+
+  private async request<T>(operation: AiOperation, id: string, call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      const apiError = error instanceof APIError ? error : undefined;
+      // Never log prompts, request bodies, API keys, or upstream error messages.
+      logMetric('ai_error', {
+        request_id: id,
+        operation,
+        model: this.model,
+        error_type: error instanceof Error ? error.name : 'unknown',
+        upstream_status: apiError?.status,
+        openai_error_code: apiError?.code ?? undefined,
+        openai_error_type: apiError?.type,
+        openai_request_id: apiError?.requestID ?? undefined,
+      });
+      throw new AiProviderError(operation, apiError?.status);
+    }
+  }
   async suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, id: string): Promise<SuggestionsResponse> {
     const started = performance.now();
-    const response = await this.client.chat.completions.parse({
+    const response = await this.request('suggestions', id, () => this.client.chat.completions.parse({
       model: this.model,
       messages: [
         { role: 'system', content: SUGGESTION_SYSTEM_PROMPT },
         { role: 'user', content: JSON.stringify(input) },
       ],
       response_format: zodResponseFormat(SuggestionsResponseSchema, 'learning_suggestions'),
-    });
+    }));
     const content = response.choices[0]?.message.parsed;
     logMetric('ai_call', { request_id: id, kind: 'suggestions', duration_ms: Math.round(performance.now() - started), model: this.model });
-    return SuggestionsResponseSchema.parse(content);
+    if (!content) {
+      logMetric('ai_response_invalid', { request_id: id, operation: 'suggestions', model: this.model,
+        openai_request_id: response._request_id ?? undefined,
+        finish_reason: response.choices[0]?.finish_reason ?? 'missing', refused: Boolean(response.choices[0]?.message.refusal) });
+      throw new AiProviderError('suggestions');
+    }
+    try { return SuggestionsResponseSchema.parse(content); }
+    catch (error) {
+      logMetric('ai_response_invalid', { request_id: id, operation: 'suggestions', model: this.model,
+        openai_request_id: response._request_id ?? undefined, error_type: error instanceof Error ? error.name : 'unknown' });
+      throw new AiProviderError('suggestions');
+    }
   }
   async generate(input: CreateSetRequest, id: string): Promise<{ title: string; cards: { key: string; values: string[] }[] }> {
     const started = performance.now();
-    const response = await this.client.chat.completions.parse({
+    const response = await this.request('flashcard_generation', id, () => this.client.chat.completions.parse({
       model: this.model,
       messages: [
         { role: 'system', content: FLASHCARD_SYSTEM_PROMPT },
@@ -58,8 +100,20 @@ export class OpenAiService implements AiService {
           learning_goal: input.learning_goal, card_count: 10, language: 'ko' }) },
       ],
       response_format: zodResponseFormat(GeneratedSetSchema, 'learning_flashcards'),
-    });
+    }));
     logMetric('ai_call', { request_id: id, kind: 'flashcard_generation', duration_ms: Math.round(performance.now() - started), model: this.model });
-    return GeneratedSetSchema.parse(response.choices[0]?.message.parsed);
+    const content = response.choices[0]?.message.parsed;
+    if (!content) {
+      logMetric('ai_response_invalid', { request_id: id, operation: 'flashcard_generation', model: this.model,
+        openai_request_id: response._request_id ?? undefined,
+        finish_reason: response.choices[0]?.finish_reason ?? 'missing', refused: Boolean(response.choices[0]?.message.refusal) });
+      throw new AiProviderError('flashcard_generation');
+    }
+    try { return GeneratedSetSchema.parse(content); }
+    catch (error) {
+      logMetric('ai_response_invalid', { request_id: id, operation: 'flashcard_generation', model: this.model,
+        openai_request_id: response._request_id ?? undefined, error_type: error instanceof Error ? error.name : 'unknown' });
+      throw error;
+    }
   }
 }
