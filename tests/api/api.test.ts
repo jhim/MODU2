@@ -104,8 +104,9 @@ describe('MODU2 API', () => {
     expect(body.suggestions.length).toBeGreaterThanOrEqual(2);
     expect(body.suggestions.length).toBeLessThanOrEqual(3);
     expect(body.message).toContain('음식 페어링');
-    expect(body.request_prompt[1].content).toContain('필수 조건');
-    expect(body.request_prompt[1].content).toContain('사용자가 이미 구체적으로 요청했다면 그 안에서만 하위 주제를 나누세요');
+    expect(body.request_prompt[1].content).toContain('사용자가 지정한 조건은');
+    expect(body.request_prompt[1].content).toContain('여러 대상의 집합이나 복수 대상을 묻는 질문은 그 집합 전체가 학습 범위');
+    expect(body.request_prompt[1].content).toContain('첫 번째는 원래 질문에 가장 직접적으로 답하는 학습 주제');
     expect(body.request_prompt).toMatchObject([
       { role: 'system' }, { role: 'developer' }, { role: 'user', content: expect.stringContaining('"original_request":"와인"') },
     ]);
@@ -127,14 +128,18 @@ describe('MODU2 API', () => {
     await new Promise<void>(resolve => promptServer.once('listening', resolve));
     const url = `http://127.0.0.1:${(promptServer.address() as any).port}`;
     try {
-      const response = await fetch(`${url}/api/ai/suggestions`, { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ original_request: '한국 주식', refinement_request: '초보자 관점', previous_suggestions: [] }) });
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.request_prompt).toEqual(outbound?.messages);
-      expect(body.request_prompt.map((message: { role: string }) => message.role)).toEqual(['system', 'developer', 'user']);
-      expect(JSON.stringify(body.request_prompt)).not.toContain('local-test-key');
-      expect(JSON.stringify(body.request_prompt)).not.toContain('ai_usage_session_token');
+      const examples = ['열대 우림의 대표적인 포유류는', '열대 우림에 사는 동물', '재규어의 생태', '와인', '17세기 세계사', '초등학교 4학년 영어 단어'];
+      for (const original_request of examples) {
+        const response = await fetch(`${url}/api/ai/suggestions`, { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ original_request, refinement_request: '', previous_suggestions: [] }) });
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body.request_prompt).toEqual(outbound?.messages);
+        expect(body.request_prompt.map((message: { role: string }) => message.role)).toEqual(['system', 'developer', 'user']);
+        expect(JSON.parse(body.request_prompt[2].content).original_request).toBe(original_request);
+        expect(JSON.stringify(body.request_prompt)).not.toContain('local-test-key');
+        expect(JSON.stringify(body.request_prompt)).not.toContain('ai_usage_session_token');
+      }
     } finally { await new Promise<void>(resolve => promptServer.close(() => resolve())); }
   });
   it('stores actual suggestion and generation usage on the generated content', async () => {

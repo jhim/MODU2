@@ -45,7 +45,7 @@ test('search existing content and complete a mocked learning flow', async ({ pag
   await page.getByRole('button', { name: /AI에게 학습 주제 추천받기/ }).click();
   await expect(page.getByRole('heading', { name: /와인에 대해 어떤 내용을 학습하고 싶으세요/ })).toBeVisible();
   await expect(page.locator('.topic-card')).toHaveCount(3);
-  await expect(page.locator('.topic-card')).toContainText(['와인의 역사', '와인의 종류와 특징', '와인 라벨 읽는 방법']);
+  await expect(page.locator('.topic-card')).toContainText(['와인의 역사', '와인의 종류와 특징', '와인 제조 과정']);
   await page.getByRole('button', { name: '요청 프롬프트 확인' }).click();
   const promptDialog = page.getByRole('dialog', { name: 'AI 요청 프롬프트' });
   await expect(promptDialog).toContainText('System');

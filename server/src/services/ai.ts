@@ -46,7 +46,7 @@ export class MockAiService implements AiService {
       '와인': [
         { title: '와인의 역사', description: '와인의 기원과 시대별 발전을 살펴봅니다.', learning_goal: '와인이 발전해 온 주요 흐름을 설명할 수 있다' },
         { title: '와인의 종류와 특징', description: '색과 양조 방식에 따른 와인의 차이를 구분합니다.', learning_goal: '대표적인 와인 종류와 특징을 구분할 수 있다' },
-        { title: '와인 라벨 읽는 방법', description: '라벨의 산지, 품종, 빈티지 정보를 읽습니다.', learning_goal: '라벨에서 와인의 기본 정보를 찾을 수 있다' },
+        { title: '와인 제조 과정', description: '포도 수확부터 발효와 숙성까지의 과정을 살펴봅니다.', learning_goal: '와인이 만들어지는 주요 단계를 설명할 수 있다' },
       ],
       '피아노': [
         { title: '악보의 기본 구성 요소', description: '오선, 음자리표, 음표와 박자표를 익힙니다.', learning_goal: '악보의 기본 기호와 역할을 설명할 수 있다' },
@@ -58,13 +58,39 @@ export class MockAiService implements AiService {
         { title: '산업혁명의 배경과 영향', description: '산업혁명이 시작된 배경과 사회 변화를 알아봅니다.', learning_goal: '산업혁명의 원인과 영향을 연결해 설명할 수 있다' },
         { title: '고대 문명의 특징', description: '강 유역에서 성장한 고대 문명의 공통점과 차이를 봅니다.', learning_goal: '고대 문명의 대표 특징을 비교할 수 있다' },
       ],
+      '17세기 세계사': [
+        { title: '17세기 세계사의 주요 사건과 변화', description: '17세기에 여러 지역에서 일어난 주요 변화를 살펴봅니다.', learning_goal: '17세기의 주요 사건과 변화를 시대 범위 안에서 설명할 수 있다' },
+        { title: '17세기 유럽과 아시아의 교류', description: '17세기 유럽과 아시아 사이의 교류와 영향을 알아봅니다.', learning_goal: '17세기 두 지역의 교류 사례를 설명할 수 있다' },
+        { title: '17세기 과학과 문화의 변화', description: '17세기 과학 지식과 문화의 변화를 살펴봅니다.', learning_goal: '17세기 과학·문화 변화의 특징을 설명할 수 있다' },
+      ],
       '영어 단어': [
         { title: '초등학교 4학년 영어 단어', description: '학교와 일상에서 자주 쓰는 기초 어휘를 익힙니다.', learning_goal: '기초 영어 단어의 뜻과 쓰임을 이해할 수 있다' },
         { title: '일상생활 필수 영어 단어', description: '인사, 집, 음식 등 일상 주제별 어휘를 배웁니다.', learning_goal: '일상 상황에 필요한 기본 어휘를 사용할 수 있다' },
         { title: '여행 영어 단어', description: '교통, 숙소와 식당에서 자주 쓰는 어휘를 익힙니다.', learning_goal: '여행 상황에 맞는 핵심 어휘를 알아볼 수 있다' },
       ],
+      '초등학교 4학년 영어 단어': [
+        { title: '초등학교 4학년 필수 영어 단어', description: '초등학교 4학년 수준의 기초 어휘를 익힙니다.', learning_goal: '초등학교 4학년 필수 어휘의 뜻을 이해할 수 있다' },
+        { title: '초등학교 4학년 생활 영어 단어', description: '일상생활에서 쓰이는 초등학교 4학년 수준의 어휘를 배웁니다.', learning_goal: '초등학교 4학년 생활 어휘를 상황에 맞게 이해할 수 있다' },
+        { title: '초등학교 4학년 학교생활 영어 단어', description: '교실과 학교생활에 필요한 초등학교 4학년 수준의 어휘를 익힙니다.', learning_goal: '학교생활에 필요한 초등학교 4학년 어휘를 이해할 수 있다' },
+      ],
+      '열대 우림의 대표적인 포유류는': [
+        { title: '열대 우림에 사는 대표적인 포유류', description: '열대 우림에 서식하는 여러 포유류의 종류와 특징을 살펴봅니다.', learning_goal: '대표적인 열대 우림 포유류 여러 종의 특징을 설명할 수 있다' },
+        { title: '지역별 열대 우림 포유류', description: '지역에 따라 서식하는 열대 우림 포유류의 다양성을 비교합니다.', learning_goal: '지역별 열대 우림 포유류의 공통점과 차이를 설명할 수 있다' },
+        { title: '열대 우림 포유류의 생활 방식', description: '여러 포유류의 먹이 활동과 이동·생활 방식을 살펴봅니다.', learning_goal: '열대 우림 포유류의 다양한 생활 방식을 설명할 수 있다' },
+      ],
+      '열대 우림에 사는 동물': [
+        { title: '열대 우림에 사는 대표 동물', description: '열대 우림에 사는 여러 동물 무리와 대표 종을 살펴봅니다.', learning_goal: '열대 우림 동물의 다양한 종류를 설명할 수 있다' },
+        { title: '지역별 열대 우림 동물', description: '지역에 따라 다른 열대 우림 동물의 분포와 다양성을 비교합니다.', learning_goal: '지역별 열대 우림 동물의 차이를 설명할 수 있다' },
+        { title: '열대 우림 동물의 생활 방식', description: '여러 동물이 먹이를 얻고 서식 환경에 적응하는 방식을 살펴봅니다.', learning_goal: '열대 우림 동물의 다양한 생활 방식을 설명할 수 있다' },
+      ],
+      '재규어의 생태': [
+        { title: '재규어의 생태와 특징', description: '재규어의 몸의 특징과 생활 주기를 살펴봅니다.', learning_goal: '재규어의 주요 생태적 특징을 설명할 수 있다' },
+        { title: '재규어의 먹이와 사냥 방식', description: '재규어의 먹이 활동과 사냥 방식을 알아봅니다.', learning_goal: '재규어의 먹이와 사냥 방식을 설명할 수 있다' },
+        { title: '재규어의 서식 환경', description: '재규어가 살아가는 환경과 그곳에서의 생활을 살펴봅니다.', learning_goal: '재규어의 서식 환경 특징을 설명할 수 있다' },
+      ],
     };
-    const scopedTopics = commonTopics[subject.trim().toLocaleLowerCase()] ?? [
+    const normalizedSubject = subject.trim().toLocaleLowerCase().replace(/[?？。!！]+$/u, '');
+    const scopedTopics = commonTopics[normalizedSubject] ?? [
       { title: `${subject}의 주요 용어와 원리`, description: `${subject}의 기본 용어와 작동 원리를 익힙니다.`, learning_goal: `${subject}의 주요 용어와 원리를 설명할 수 있다` },
       { title: `${subject}의 종류와 차이`, description: `${subject}의 대표적인 유형과 차이를 비교합니다.`, learning_goal: `${subject}의 대표 유형을 구분할 수 있다` },
       { title: `${subject}의 기본 활용법`, description: `${subject}를 실제 상황에 적용하는 기초를 배웁니다.`, learning_goal: `${subject}의 기초를 실제 상황에 적용할 수 있다` },
