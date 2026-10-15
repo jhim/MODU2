@@ -1,5 +1,7 @@
 import type { AiUsageSummary, CreateSetRequest, Flashcard, Suggestion } from '../../../shared/schemas/index';
 
+export interface RequestPromptMessage { role: 'system' | 'developer' | 'user'; content: string }
+
 export type SourceMode = 'AI' | 'PHOTO' | 'TEXT' | 'EXCEL';
 export interface ContentSet {
   id: string; title: string; original_request: string; selected_topic?: string; learning_goal?: string;
@@ -37,7 +39,7 @@ export const api = {
     return request<ContentListResponse>('/api/learning-sets?' + params);
   },
   suggestions: (body: { original_request: string; refinement_request: string; previous_suggestions: Suggestion[]; ai_usage_session_id?: string; ai_usage_session_token?: string }) =>
-    request<{ message: string; suggestions: Suggestion[]; ai_usage_session_id: string; ai_usage_session_token: string }>('/api/ai/suggestions', { method: 'POST', body: JSON.stringify(body) }),
+    request<{ message: string; suggestions: Suggestion[]; request_prompt: RequestPromptMessage[]; ai_usage_session_id: string; ai_usage_session_token: string }>('/api/ai/suggestions', { method: 'POST', body: JSON.stringify(body) }),
   create: (body: CreateSetRequest) => request<ContentSet>('/api/learning-sets', { method: 'POST', body: JSON.stringify(body) }),
   get: (id: string) => request<ContentSet>('/api/learning-sets/' + encodeURIComponent(id)),
   createImported: (body: { title: string; cards: Flashcard[]; source_mode: SourceMode; ai_usage_session_id?: string; ai_usage_session_token?: string }) =>

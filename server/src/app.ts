@@ -122,7 +122,7 @@ export function createApp(deps: Deps) {
       if (usageOwnerId) await deps.repository.claimAiUsageSession(sessionId, usageOwnerId);
       const result = await deps.ai.suggest(suggestionInput, res.locals.requestId);
       if (result.usage) await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'suggestions', usage: result.usage, ownerId: usageOwnerId });
-      return res.json({ ...result.data, ai_usage_session_id: sessionId, ai_usage_session_token: usageSession.token });
+      return res.json({ ...result.data, request_prompt: result.requestPrompt ?? [], ai_usage_session_id: sessionId, ai_usage_session_token: usageSession.token });
     } catch (error) {
       if (error instanceof AiProviderError && error.usage && sessionId) {
         try { await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'suggestions', usage: error.usage, ownerId: usageOwnerId }); }

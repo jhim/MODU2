@@ -3,11 +3,12 @@ import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import { GeneratedSetSchema, SuggestionsResponseSchema, type CreateSetRequest, type SuggestionsResponse } from '../../../shared/schemas/index.js';
 import { FLASHCARD_DEVELOPER_PROMPT, FLASHCARD_SYSTEM_PROMPT, IMAGE_EXTRACTION_DEVELOPER_PROMPT,
-  IMAGE_EXTRACTION_SYSTEM_PROMPT, SUGGESTION_DEVELOPER_PROMPT, SUGGESTION_SYSTEM_PROMPT } from '../prompts/index.js';
+  IMAGE_EXTRACTION_SYSTEM_PROMPT, SUGGESTION_DEVELOPER_PROMPT, SUGGESTION_SYSTEM_PROMPT,
+  buildSuggestionPromptMessages, type SuggestionPromptMessage } from '../prompts/index.js';
 import { logMetric } from '../lib/metrics.js';
 import { calculateAiUsage, type AiUsageRecord } from './ai-pricing.js';
 
-export type AiCallResult<T> = { data: T; usage: AiUsageRecord | null };
+export type AiCallResult<T> = { data: T; usage: AiUsageRecord | null; requestPrompt?: SuggestionPromptMessage[] };
 
 export interface AiService {
   suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, requestId: string): Promise<AiCallResult<SuggestionsResponse>>;
@@ -35,7 +36,7 @@ function responseFormat(schema: Parameters<typeof zodResponseFormat>[0], name: s
 }
 
 export class MockAiService implements AiService {
-  async suggest(input: { original_request: string; refinement_request: string }, _requestId: string): Promise<AiCallResult<SuggestionsResponse>> {
+  async suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, _requestId: string): Promise<AiCallResult<SuggestionsResponse>> {
     const subject = input.refinement_request || input.original_request;
     return { data: SuggestionsResponseSchema.parse({
       message: subject + '에 대해 어떤 내용을 학습하고 싶으세요?',
@@ -44,7 +45,7 @@ export class MockAiService implements AiService {
         { id: 's2', title: subject + ' 구성과 종류', description: subject + '를 이루는 요소와 대표적인 분류', learning_goal: subject + '의 주요 종류를 구분할 수 있다' },
         { id: 's3', title: subject + ' 실전 활용', description: subject + '를 일상과 실제 상황에 적용하는 방법', learning_goal: subject + '의 기본 지식을 실제 사례에 적용할 수 있다' },
       ],
-    }), usage: null };
+    }), usage: null, requestPrompt: buildSuggestionPromptMessages(input) };
   }
   async generate(input: CreateSetRequest, _requestId: string): Promise<AiCallResult<{ title: string; cards: { key: string; values: string[] }[] }>> {
     const topic = input.selected_topic;
@@ -83,15 +84,10 @@ export class OpenAiService implements AiService {
   }
   async suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, id: string): Promise<AiCallResult<SuggestionsResponse>> {
     const started = performance.now();
+    const requestPrompt = buildSuggestionPromptMessages(input);
     const response = await this.request('suggestions', id, () => this.client.chat.completions.parse({
       model: this.model,
-      messages: [
-        { role: 'system', content: SUGGESTION_SYSTEM_PROMPT },
-        { role: 'developer', content: SUGGESTION_DEVELOPER_PROMPT },
-        { role: 'user', content: JSON.stringify({ original_request: input.original_request,
-          refinement_request: input.refinement_request,
-          previous_titles: input.previous_suggestions.slice(-6).map((item: any) => typeof item?.title === 'string' ? item.title : '').filter(Boolean) }) },
-      ],
+      messages: requestPrompt,
       response_format: responseFormat(SuggestionsResponseSchema, 'learning_suggestions'),
       max_completion_tokens: 1400,
     }));
@@ -106,7 +102,7 @@ export class OpenAiService implements AiService {
         refused: Boolean(response.choices[0]?.message.refusal) });
       throw new AiProviderError('suggestions', undefined, usage);
     }
-    try { return { data: SuggestionsResponseSchema.parse(content), usage }; }
+    try { return { data: SuggestionsResponseSchema.parse(content), usage, requestPrompt }; }
     catch (error) {
       logMetric('ai_response_invalid', { request_id: id, operation: 'suggestions', model: this.model,
         openai_request_id: response._request_id ?? undefined, error_type: error instanceof Error ? error.name : 'unknown' });

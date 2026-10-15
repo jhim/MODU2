@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/auth';
-import { api, setAccessTokenProvider, type ContentListResponse, type ContentSet, type SourceMode } from '../lib/api';
+import { api, setAccessTokenProvider, type ContentListResponse, type ContentSet, type RequestPromptMessage, type SourceMode } from '../lib/api';
 import type { Flashcard, Suggestion } from '../../../shared/schemas/index';
 import { AuthPanel } from '../components/AuthPanel';
 import { ContentEditor } from '../components/ContentEditor';
@@ -18,6 +18,9 @@ export default function App() {
   const [results, setResults] = useState<ContentSet[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [requestPrompt, setRequestPrompt] = useState<RequestPromptMessage[] | null>(null);
+  const [requestPromptOpen, setRequestPromptOpen] = useState(false);
+  const [openUsageInfoId, setOpenUsageInfoId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [refinement, setRefinement] = useState('');
   const [originalRequest, setOriginalRequest] = useState('');
@@ -97,11 +100,12 @@ export default function App() {
     if (!subject) { setError('먼저 학습하고 싶은 주제를 입력해 주세요.'); return; }
     const previous = subjectOverride ? [] : suggestions;
     const reuseSession = !subjectOverride && screen === 'suggestions' && aiUsageSessionId && aiUsageSessionToken;
-    setError(''); setBusy(true); setOriginalRequest(subject); setSuggestions(previous); setShowResults(false);
+    setError(''); setBusy(true); setOriginalRequest(subject); setSuggestions(previous); setRequestPrompt(null); setShowResults(false);
     try {
       const data = await api.suggestions({ original_request: subject, refinement_request: refine, previous_suggestions: previous,
         ...(reuseSession ? { ai_usage_session_id: aiUsageSessionId, ai_usage_session_token: aiUsageSessionToken } : {}) });
-      setAiUsageSessionId(data.ai_usage_session_id); setAiUsageSessionToken(data.ai_usage_session_token); setSuggestions(data.suggestions); setMessage(data.message); setRefinement(''); setScreen('suggestions');
+      setAiUsageSessionId(data.ai_usage_session_id); setAiUsageSessionToken(data.ai_usage_session_token); setSuggestions(data.suggestions); setMessage(data.message);
+      setRequestPrompt(Array.isArray(data.request_prompt) ? data.request_prompt : null); setRefinement(''); setScreen('suggestions');
     } catch (reason) { setError(reason instanceof Error ? reason.message : '추천을 불러오지 못했습니다.'); }
     finally { setBusy(false); }
   }
@@ -125,7 +129,7 @@ export default function App() {
     const last = (activeSet?.cards?.length ?? 0) - 1;
     setCardIndex(index => Math.max(0, Math.min(last, index + delta))); setFlipped(false);
   }
-  function goHome() { setScreen('home'); setActiveSet(null); setError(''); setShowResults(false); setAiUsageSessionId(null); setAiUsageSessionToken(null); }
+  function goHome() { setScreen('home'); setActiveSet(null); setError(''); setShowResults(false); setRequestPromptOpen(false); setAiUsageSessionId(null); setAiUsageSessionToken(null); }
   function openLibrary(scope: 'all' | 'mine' = 'all') {
     setError('');
     if (scope === 'mine' && !session) { setScreen('auth'); setAuthMode('login'); setListScope('mine'); return; }
@@ -218,6 +222,7 @@ export default function App() {
     {screen === 'suggestions' && <main className="flow main-width">
       <button className="back-link" onClick={goHome}>← 처음으로</button><div className="step-label"><span>STEP 1</span> 학습 방향 선택</div>
       <h1>{message || originalRequest + '에 대해 어떤 내용을 학습하고 싶으세요?'}</h1><p className="flow-copy">마음에 드는 주제를 선택하면 핵심 플래시카드 10장을 만들어요.</p>
+      {requestPrompt && requestPrompt.length > 0 && <div className="prompt-action"><Button variant="outline" onClick={() => setRequestPromptOpen(true)}>요청 프롬프트 확인</Button></div>}
       <div className="topic-grid">{suggestions.map((suggestion, index) => <button className="topic-card" key={suggestion.id} onClick={() => void createSet(suggestion)}>
         <span className={'topic-number tone-' + index}>0{index + 1}</span><span className="topic-arrow">↗</span><strong>{suggestion.title}</strong>
         <span className="topic-description">{suggestion.description}</span><span className="goal"><span>학습 목표</span>{suggestion.learning_goal}</span>
@@ -246,17 +251,28 @@ export default function App() {
       {!busy && listData?.results.length === 0 && <Card className="empty-library"><strong>아직 콘텐츠가 없습니다.</strong><span>자료를 가져오거나 AI로 새 카드를 만들어 보세요.</span><Button onClick={openNewImport}>콘텐츠 만들기</Button></Card>}
       {!busy && listData && listData.results.length > 0 && <div className="content-list">
         {listData.results.map(item => <article className="content-row" key={item.id}>
-          <button className="content-main" onClick={() => void openSet(item.id)}>
+          <div className="content-main">
             <span className="source-chip">{item.source_mode === 'PHOTO' ? '사진' : item.source_mode === 'TEXT' ? 'TXT' : item.source_mode === 'EXCEL' ? 'Excel' : 'AI'}</span>
-            <strong>{item.title}</strong><span className="content-meta">
+            <button className="content-title" onClick={() => void openSet(item.id)}>{item.title}</button><span className="content-meta">
               {item.card_count}개 카드 · 생성 {new Date(item.created_at).toLocaleDateString('ko-KR')} · 수정 {new Date(item.updated_at ?? item.created_at).toLocaleDateString('ko-KR')}
-              {item.ai_usage && typeof item.ai_usage.total_tokens === 'number' && Number.isFinite(item.ai_usage.total_tokens) && <span className="ai-cost" title={`입력 ${(item.ai_usage.input_tokens ?? 0).toLocaleString()} · 출력 ${(item.ai_usage.output_tokens ?? 0).toLocaleString()} · 총 ${item.ai_usage.total_tokens.toLocaleString()} tokens\n모델 단가: ${(item.ai_usage.model_rates ?? []).map(rate => `${rate.model}: 입력 $${rate.input_usd_per_million ?? '미등록'} · 캐시 $${rate.cached_input_usd_per_million ?? '미등록'} · 출력 $${rate.output_usd_per_million ?? '미등록'} / 1M tokens (${rate.pricing_as_of})`).join('; ')}\n환율: ${(item.ai_usage.fx_rates ?? []).map(rate => `1 USD = ${rate.usd_krw_rate} KRW (${rate.as_of}, ${rate.source})`).join('; ')}\n실제 청구액이 아닌 추정 API 비용`}>
-                {' · 크레딧 '}{item.ai_usage.total_tokens.toLocaleString()}{' tokens'}
+              {item.ai_usage && typeof item.ai_usage.total_tokens === 'number' && Number.isFinite(item.ai_usage.total_tokens) && <span className="ai-cost-wrap">
+                <button type="button" className="ai-cost" aria-expanded={openUsageInfoId === item.id} aria-controls={`ai-cost-info-${item.id}`}
+                  title={`입력 ${item.ai_usage.input_tokens?.toLocaleString() ?? '—'} · 출력 ${item.ai_usage.output_tokens?.toLocaleString() ?? '—'} · 총 ${item.ai_usage.total_tokens.toLocaleString()} tokens\n예상 비용 $${item.ai_usage.estimated_usd?.toLocaleString('en-US', { maximumFractionDigits: 8 }) ?? '미등록'} · 약 ${item.ai_usage.estimated_krw?.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) ?? '미등록'}원\n모델 단가 및 적용 환율 상세는 클릭해서 확인하세요. 실제 청구액이 아닌 추정 API 비용`}
+                  onClick={() => setOpenUsageInfoId(current => current === item.id ? null : item.id)}>
+                {item.ai_usage.total_tokens.toLocaleString()}{' tokens'}
                 {typeof item.ai_usage.estimated_krw === 'number' && Number.isFinite(item.ai_usage.estimated_krw) && <> · 약 {Math.round(item.ai_usage.estimated_krw).toLocaleString()}원</>}
+                </button>
+                {openUsageInfoId === item.id && <span className="ai-cost-info" id={`ai-cost-info-${item.id}`} role="tooltip">
+                  <span>입력 {item.ai_usage.input_tokens?.toLocaleString() ?? '—'} · 출력 {item.ai_usage.output_tokens?.toLocaleString() ?? '—'} · 총 {item.ai_usage.total_tokens.toLocaleString()} tokens</span>
+                  <span>예상 비용 ${item.ai_usage.estimated_usd?.toLocaleString('en-US', { maximumFractionDigits: 8 }) ?? '미등록'} · 약 {item.ai_usage.estimated_krw?.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) ?? '미등록'}원</span>
+                  <span>모델 단가: {(item.ai_usage.model_rates ?? []).map(rate => `${rate.model}: 입력 $${rate.input_usd_per_million ?? '미등록'} · 캐시 $${rate.cached_input_usd_per_million ?? '미등록'} · 출력 $${rate.output_usd_per_million ?? '미등록'} / 1M tokens (${rate.pricing_as_of})`).join('; ') || '—'}</span>
+                  <span>환율: {(item.ai_usage.fx_rates ?? []).map(rate => `1 USD = ${rate.usd_krw_rate} KRW (${rate.as_of}, ${rate.source})`).join('; ') || '—'}</span>
+                  <span>실제 청구액이 아닌 추정 API 비용</span>
+                </span>}
               </span>}
             </span>
             <span className="content-preview">{item.preview.map(card => card.key + ' — ' + card.values[0]).join(' / ')}</span>
-          </button>
+          </div>
           <div className="content-actions"><Button variant="outline" onClick={() => void openSet(item.id)}>학습하기</Button>
             {item.can_edit && <><Button variant="outline" onClick={() => { api.get(item.id).then(set => { setEditing(set); setDraft({ title: set.title, cards: set.cards ?? [], sourceMode: set.source_mode ?? 'AI', issues: [] }); setScreen('editor'); }).catch(reason => setError(reason instanceof Error ? reason.message : '콘텐츠를 불러오지 못했습니다.')); }}>수정하기</Button>
               <Button variant="ghost" onClick={() => void deleteSet(item.id)}>삭제</Button></>}
@@ -279,7 +295,7 @@ export default function App() {
       onCancel={() => { setPendingSave(null); setScreen(draft ? 'editor' : 'home'); }} />}
 
     {screen === 'study' && activeSet && <main className="study main-width">
-      <button className="back-link" onClick={goHome}>← 다른 주제 학습하기</button>
+      <button className="back-link" onClick={() => openLibrary('all')}>← 다른 주제 학습하기</button>
       <div className="study-heading"><div><div className="step-label"><span>LEARNING SET</span></div><h1>{activeSet.title}</h1></div><span className="card-count">{activeSet.cards?.length ?? 10} CARDS</span></div>
       {activeSet.cards && activeSet.cards.length > 0 ? <>
         <div className="study-progress"><span style={{ width: Math.min(100, ((cardIndex + 1) / activeSet.cards.length) * 100) + '%' }} /></div>
@@ -304,6 +320,15 @@ export default function App() {
       </div>
     </main>}
 
+    {requestPromptOpen && requestPrompt && <div className="modal-scrim" role="presentation" onClick={() => setRequestPromptOpen(false)}>
+      <section className="prompt-panel" role="dialog" aria-modal="true" aria-labelledby="prompt-heading" onClick={event => event.stopPropagation()}>
+        <h2 id="prompt-heading">AI 요청 프롬프트</h2><p>아래 메시지가 주제 추천 요청에 사용되었습니다.</p>
+        <div className="prompt-messages">{requestPrompt.map((item, index) => <article key={`${item.role}-${index}`}>
+          <strong>{item.role === 'system' ? 'System' : item.role === 'developer' ? 'Developer' : 'User'}</strong><pre>{item.content}</pre>
+        </article>)}</div>
+        <div className="prompt-actions"><Button variant="outline" onClick={() => setRequestPromptOpen(false)}>닫기</Button></div>
+      </section>
+    </div>}
     <footer className="footer">© MODU2 <span>·</span> Learn something new, every day.</footer>
   </div>;
 }

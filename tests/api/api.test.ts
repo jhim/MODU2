@@ -104,6 +104,36 @@ describe('MODU2 API', () => {
     expect(body.suggestions.length).toBeGreaterThanOrEqual(2);
     expect(body.suggestions.length).toBeLessThanOrEqual(3);
     expect(body.message).toContain('음식 페어링');
+    expect(body.request_prompt).toMatchObject([
+      { role: 'system' }, { role: 'developer' }, { role: 'user', content: expect.stringContaining('"original_request":"와인"') },
+    ]);
+  });
+  it('shows the exact messages sent in the OpenAI recommendation request', async () => {
+    let outbound: Record<string, unknown> | undefined;
+    const client = new OpenAI({ apiKey: 'local-test-key', maxRetries: 0, fetch: async (_input, init) => {
+      outbound = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({ id: 'chatcmpl_prompt_test', object: 'chat.completion', created: 1, model: 'gpt-4o-mini',
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ message: '주제를 선택하세요.', suggestions: [
+          { id: 'one', title: '관점 하나', description: '간단한 소개', learning_goal: '기초를 이해한다' },
+          { id: 'two', title: '관점 둘', description: '다른 방향', learning_goal: '차이를 구분한다' },
+        ] }) } }], usage: { prompt_tokens: 20, completion_tokens: 30, total_tokens: 50 } }),
+      { status: 200, headers: { 'content-type': 'application/json', 'x-request-id': 'req_prompt_test' } });
+    } });
+    const service = new OpenAiService('local-test-key', 'gpt-4o-mini', client);
+    const promptApp = createApp({ ai: service, repository: new MemoryLearningRepository() });
+    const promptServer = promptApp.listen(0);
+    await new Promise<void>(resolve => promptServer.once('listening', resolve));
+    const url = `http://127.0.0.1:${(promptServer.address() as any).port}`;
+    try {
+      const response = await fetch(`${url}/api/ai/suggestions`, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ original_request: '한국 주식', refinement_request: '초보자 관점', previous_suggestions: [] }) });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.request_prompt).toEqual(outbound?.messages);
+      expect(body.request_prompt.map((message: { role: string }) => message.role)).toEqual(['system', 'developer', 'user']);
+      expect(JSON.stringify(body.request_prompt)).not.toContain('local-test-key');
+      expect(JSON.stringify(body.request_prompt)).not.toContain('ai_usage_session_token');
+    } finally { await new Promise<void>(resolve => promptServer.close(() => resolve())); }
   });
   it('stores actual suggestion and generation usage on the generated content', async () => {
     const mock = new MockAiService();
