@@ -37,14 +37,41 @@ function responseFormat(schema: Parameters<typeof zodResponseFormat>[0], name: s
 
 export class MockAiService implements AiService {
   async suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, _requestId: string): Promise<AiCallResult<SuggestionsResponse>> {
-    const subject = input.refinement_request || input.original_request;
+    const original = input.original_request.trim();
+    const refinement = input.refinement_request.trim();
+    const subject = refinement
+      ? (refinement.toLocaleLowerCase().includes(original.toLocaleLowerCase()) ? refinement : `${original} ${refinement}`)
+      : original;
+    const commonTopics: Record<string, { title: string; description: string; learning_goal: string }[]> = {
+      '와인': [
+        { title: '와인의 역사', description: '와인의 기원과 시대별 발전을 살펴봅니다.', learning_goal: '와인이 발전해 온 주요 흐름을 설명할 수 있다' },
+        { title: '와인의 종류와 특징', description: '색과 양조 방식에 따른 와인의 차이를 구분합니다.', learning_goal: '대표적인 와인 종류와 특징을 구분할 수 있다' },
+        { title: '와인 라벨 읽는 방법', description: '라벨의 산지, 품종, 빈티지 정보를 읽습니다.', learning_goal: '라벨에서 와인의 기본 정보를 찾을 수 있다' },
+      ],
+      '피아노': [
+        { title: '악보의 기본 구성 요소', description: '오선, 음자리표, 음표와 박자표를 익힙니다.', learning_goal: '악보의 기본 기호와 역할을 설명할 수 있다' },
+        { title: '피아노 건반과 음계', description: '건반 배열과 기본 음계의 관계를 알아봅니다.', learning_goal: '건반에서 기본 음계의 위치를 찾을 수 있다' },
+        { title: '피아노 연주 기초', description: '바른 자세와 손가락 번호, 기본 연습법을 익힙니다.', learning_goal: '기초적인 연주 자세와 연습법을 적용할 수 있다' },
+      ],
+      '세계사': [
+        { title: '17세기 세계사', description: '17세기 주요 지역의 변화와 교류를 살펴봅니다.', learning_goal: '17세기 주요 사건과 지역 간 관계를 설명할 수 있다' },
+        { title: '산업혁명의 배경과 영향', description: '산업혁명이 시작된 배경과 사회 변화를 알아봅니다.', learning_goal: '산업혁명의 원인과 영향을 연결해 설명할 수 있다' },
+        { title: '고대 문명의 특징', description: '강 유역에서 성장한 고대 문명의 공통점과 차이를 봅니다.', learning_goal: '고대 문명의 대표 특징을 비교할 수 있다' },
+      ],
+      '영어 단어': [
+        { title: '초등학교 4학년 영어 단어', description: '학교와 일상에서 자주 쓰는 기초 어휘를 익힙니다.', learning_goal: '기초 영어 단어의 뜻과 쓰임을 이해할 수 있다' },
+        { title: '일상생활 필수 영어 단어', description: '인사, 집, 음식 등 일상 주제별 어휘를 배웁니다.', learning_goal: '일상 상황에 필요한 기본 어휘를 사용할 수 있다' },
+        { title: '여행 영어 단어', description: '교통, 숙소와 식당에서 자주 쓰는 어휘를 익힙니다.', learning_goal: '여행 상황에 맞는 핵심 어휘를 알아볼 수 있다' },
+      ],
+    };
+    const scopedTopics = commonTopics[subject.trim().toLocaleLowerCase()] ?? [
+      { title: `${subject}의 주요 용어와 원리`, description: `${subject}의 기본 용어와 작동 원리를 익힙니다.`, learning_goal: `${subject}의 주요 용어와 원리를 설명할 수 있다` },
+      { title: `${subject}의 종류와 차이`, description: `${subject}의 대표적인 유형과 차이를 비교합니다.`, learning_goal: `${subject}의 대표 유형을 구분할 수 있다` },
+      { title: `${subject}의 기본 활용법`, description: `${subject}를 실제 상황에 적용하는 기초를 배웁니다.`, learning_goal: `${subject}의 기초를 실제 상황에 적용할 수 있다` },
+    ];
     return { data: SuggestionsResponseSchema.parse({
       message: subject + '에 대해 어떤 내용을 학습하고 싶으세요?',
-      suggestions: [
-        { id: 's1', title: subject + ' 핵심 개념', description: subject + '의 기본 원리와 주요 용어', learning_goal: subject + '의 핵심 개념을 설명할 수 있다' },
-        { id: 's2', title: subject + ' 구성과 종류', description: subject + '를 이루는 요소와 대표적인 분류', learning_goal: subject + '의 주요 종류를 구분할 수 있다' },
-        { id: 's3', title: subject + ' 실전 활용', description: subject + '를 일상과 실제 상황에 적용하는 방법', learning_goal: subject + '의 기본 지식을 실제 사례에 적용할 수 있다' },
-      ],
+      suggestions: scopedTopics.map((topic, index) => ({ id: `s${index + 1}`, ...topic })),
     }), usage: null, requestPrompt: buildSuggestionPromptMessages(input) };
   }
   async generate(input: CreateSetRequest, _requestId: string): Promise<AiCallResult<{ title: string; cards: { key: string; values: string[] }[] }>> {

@@ -273,6 +273,7 @@ export default function App() {
                 </span>}
               </span></>}
             </span>
+            {typeof item.original_request === 'string' && item.original_request.trim() && <span className="content-original-request"><strong>최초 검색어:</strong> {item.original_request.trim()}</span>}
             <span className="content-preview">{item.preview.map(card => card.key + ' — ' + card.values[0]).join(' / ')}</span>
           </div>
           <div className="content-actions"><Button variant="outline" onClick={() => void openSet(item.id)}>학습하기</Button>

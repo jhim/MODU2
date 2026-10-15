@@ -104,6 +104,8 @@ describe('MODU2 API', () => {
     expect(body.suggestions.length).toBeGreaterThanOrEqual(2);
     expect(body.suggestions.length).toBeLessThanOrEqual(3);
     expect(body.message).toContain('음식 페어링');
+    expect(body.request_prompt[1].content).toContain('필수 조건');
+    expect(body.request_prompt[1].content).toContain('사용자가 이미 구체적으로 요청했다면 그 안에서만 하위 주제를 나누세요');
     expect(body.request_prompt).toMatchObject([
       { role: 'system' }, { role: 'developer' }, { role: 'user', content: expect.stringContaining('"original_request":"와인"') },
     ]);

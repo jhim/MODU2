@@ -3,9 +3,12 @@ import { FLASHCARD_DEVELOPER_PROMPT, IMAGE_EXTRACTION_DEVELOPER_PROMPT, SUGGESTI
 
 describe('AI prompt quality rules', () => {
   it('guides recommendations toward requested levels and distinct angles', () => {
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('학습자와 난이도');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('다른 학습 관점');
-    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('이전 제목');
+    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('학년/연령·시대/기간·난이도');
+    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('서로 겹치지 않는 학습 방향');
+    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('카드 10개');
+    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('와인의 역사');
+    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('초등학교 4학년 영어 단어');
+    expect(SUGGESTION_DEVELOPER_PROMPT).toContain('이전 추천 제목');
   });
 
   it('requires distinct atomic cards with direct answers and avoids unsupported claims', () => {

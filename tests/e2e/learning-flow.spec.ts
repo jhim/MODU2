@@ -13,6 +13,7 @@ test('search existing content and complete a mocked learning flow', async ({ pag
   await page.getByRole('button', { name: /AI에게 학습 주제 추천받기/ }).click();
   await expect(page.getByRole('heading', { name: /와인에 대해 어떤 내용을 학습하고 싶으세요/ })).toBeVisible();
   await expect(page.locator('.topic-card')).toHaveCount(3);
+  await expect(page.locator('.topic-card')).toContainText(['와인의 역사', '와인의 종류와 특징', '와인 라벨 읽는 방법']);
   await page.getByRole('button', { name: '요청 프롬프트 확인' }).click();
   const promptDialog = page.getByRole('dialog', { name: 'AI 요청 프롬프트' });
   await expect(promptDialog).toContainText('System');
@@ -34,7 +35,7 @@ test('search existing content and complete a mocked learning flow', async ({ pag
   await page.getByRole('button', { name: '다시 추천' }).click();
   await expect(page.getByRole('heading', { name: /와인 음식 페어링에 대해/ })).toBeVisible();
   await page.locator('.topic-card').first().click();
-  await expect(page.getByRole('heading', { name: /와인 음식 페어링 핵심 개념/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /와인 음식 페어링의 주요 용어와 원리/ })).toBeVisible();
   await expect(page.locator('.flashcard')).toBeVisible();
   await page.locator('.flashcard').click();
   await expect(page.locator('.card-values')).toBeVisible();
@@ -50,6 +51,8 @@ test('search existing content and complete a mocked learning flow', async ({ pag
   await expect(page.getByRole('heading', { name: '와인 기초 지식' })).toBeVisible();
   await page.getByRole('button', { name: '← 다른 주제 학습하기' }).click();
   await expect(page.getByRole('heading', { name: '학습 콘텐츠 목록' })).toBeVisible();
+  const learnedSet = page.locator('.content-row').filter({ hasText: '와인 음식 페어링의 주요 용어와 원리' });
+  await expect(learnedSet).toContainText('최초 검색어: 와인');
   await page.getByRole('button', { name: '만들기', exact: true }).click();
   await page.getByRole('textbox', { name: '학습 주제 입력' }).fill('피아노');
   await page.getByRole('button', { name: /AI에게 학습 주제 추천받기/ }).click();
@@ -94,7 +97,7 @@ test('shows recorded AI usage and leaves older content without usage blank', asy
           fx_rates: [{ usd_krw_rate: 1342.13, as_of: '2026-10-13', source: 'Federal Reserve H.10 / FRED DEXKOUS' }] } },
       { id: crypto.randomUUID(), title: '기존 사용량 미기록 콘텐츠', original_request: '테스트', status: 'COMPLETED',
         created_at: timestamp, updated_at: timestamp, source_mode: 'AI', card_count: 10, preview: [], can_edit: false },
-      { id: crypto.randomUUID(), title: 'null 사용량 콘텐츠', original_request: '테스트', status: 'COMPLETED',
+      { id: crypto.randomUUID(), title: 'null 사용량 콘텐츠', original_request: '  ', status: 'COMPLETED',
         created_at: timestamp, updated_at: timestamp, source_mode: 'AI', card_count: 10, preview: [], can_edit: false,
         ai_usage: { input_tokens: null, output_tokens: null, total_tokens: null, cached_input_tokens: null,
           estimated_usd: null, estimated_krw: null, models: null, operations: null, pricing_as_of: null,
@@ -133,4 +136,5 @@ test('shows recorded AI usage and leaves older content without usage blank', asy
   await expect(legacy).not.toContainText('크레딧');
   const nullUsage = page.locator('.content-row').filter({ hasText: 'null 사용량 콘텐츠' }).locator('.content-meta');
   await expect(nullUsage).not.toContainText('크레딧');
+  await expect(page.locator('.content-row').filter({ hasText: 'null 사용량 콘텐츠' })).not.toContainText('최초 검색어');
 });

@@ -12,6 +12,7 @@ test('opens the paginated library and previews imported text before login-gated 
   const row = page.locator('.content-row').filter({ hasText: '차 기초' });
   await expect(row).toContainText('차 기초');
   await expect(row).toContainText('10개 카드');
+  await expect(row).toContainText('최초 검색어: 차');
   const download = page.waitForEvent('download');
   await row.getByRole('button', { name: 'Excel', exact: true }).click();
   expect((await download).suggestedFilename()).toContain('.xlsx');

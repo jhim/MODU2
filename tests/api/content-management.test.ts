@@ -55,6 +55,7 @@ describe('MODU2 authenticated content ownership', () => {
     expect(ownEdit.status).toBe(200);
     const updated = await ownEdit.json();
     expect(updated.cards).toEqual([{ key: 'espresso', values: ['에스프레소'] }]);
+    expect(updated.original_request).toBe(set.original_request);
     expect(updated.updated_at).not.toBe(set.updated_at);
     const stale = await fetch(baseUrl + '/api/learning-sets/' + set.id, { method: 'PUT', headers: auth('user-a'),
       body: JSON.stringify({ title: '낡은 수정', cards, source_mode: 'TEXT', expected_updated_at: set.updated_at }) });
