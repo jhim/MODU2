@@ -2,6 +2,8 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { ContentSource, LearningRepository, LearningSet, ContentListResult } from './types.js';
 import type { Flashcard } from '../../../shared/schemas/index.js';
 import type { AiUsageRecord } from '../services/ai-pricing.js';
+import type { ActivePrompt, PromptKey, PromptTemplate } from '../prompts/templates.js';
+import type { PromptAuditRecord, PromptRepository, PromptTemplateRecord, PromptVersion } from '../prompts/repository.js';
 
 export function toFlashcardRpcPayload(cards: Flashcard[]) {
   return cards.map((card, index) => ({ key_text: card.key, values: card.values, sort_order: index + 1 }));
@@ -13,7 +15,7 @@ function decodeContent(value: any): LearningSet {
 function one<T>(data: any): T {
   return (Array.isArray(data) ? data[0] : data) as T;
 }
-export class SupabaseLearningRepository implements LearningRepository {
+export class SupabaseLearningRepository implements LearningRepository, PromptRepository {
   private constructor(private readonly db: SupabaseClient) {}
   static fromEnv(url: string, key: string): SupabaseLearningRepository {
     return new SupabaseLearningRepository(createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }));
@@ -122,5 +124,71 @@ export class SupabaseLearningRepository implements LearningRepository {
     const { data, error } = await this.db.rpc('delete_owned_learning_set', { p_owner_id: ownerId, p_learning_set_id: id });
     if (error) throw error;
     return Boolean(data);
+  }
+
+  async loadActivePrompt(key: PromptKey): Promise<ActivePrompt | null> {
+    const { data, error } = await this.db.from('ai_prompt_version')
+      .select('id,version_number,system_prompt,developer_prompt,user_template,ai_prompt_template!inner(prompt_key,is_enabled)')
+      .eq('status', 'ACTIVE').eq('ai_prompt_template.prompt_key', key).eq('ai_prompt_template.is_enabled', true)
+      .abortSignal(AbortSignal.timeout(6_000)).maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const { ai_prompt_template: _template, ...version } = data as any;
+    return version as ActivePrompt;
+  }
+  async listPromptTemplates(): Promise<PromptTemplateRecord[]> {
+    const { data, error } = await this.db.from('ai_prompt_template')
+      .select('id,prompt_key,name,description,is_enabled,created_at,ai_prompt_version(id,template_id,version_number,system_prompt,developer_prompt,user_template,status,change_note,created_by,created_at,activated_by,activated_at)')
+      .order('prompt_key');
+    if (error) throw error;
+    return (data ?? []).map((template: any) => ({ ...template,
+      versions: (template.ai_prompt_version ?? []).sort((a: PromptVersion, b: PromptVersion) => b.version_number - a.version_number) }));
+  }
+  private async getPromptTemplateId(key: PromptKey): Promise<string> {
+    const { data, error } = await this.db.from('ai_prompt_template').select('id').eq('prompt_key', key).single();
+    if (error) throw error;
+    return data.id;
+  }
+  async listPromptVersions(key: PromptKey): Promise<PromptVersion[]> {
+    const templateId = await this.getPromptTemplateId(key);
+    const { data, error } = await this.db.from('ai_prompt_version').select('*').eq('template_id', templateId).order('version_number', { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as PromptVersion[];
+  }
+  async getPromptVersion(key: PromptKey, versionId: string): Promise<PromptVersion | null> {
+    const templateId = await this.getPromptTemplateId(key);
+    const { data, error } = await this.db.from('ai_prompt_version').select('*').eq('template_id', templateId).eq('id', versionId).maybeSingle();
+    if (error) throw error;
+    return data as PromptVersion | null;
+  }
+  async createPromptDraft(key: PromptKey, actorId: string, note: string): Promise<PromptVersion> {
+    const { data, error } = await this.db.rpc('create_ai_prompt_draft', { p_prompt_key: key, p_actor_id: actorId, p_change_note: note });
+    if (error) throw error;
+    return one<PromptVersion>(data);
+  }
+  async updatePromptDraft(key: PromptKey, versionId: string, actorId: string, value: PromptTemplate, note: string): Promise<PromptVersion> {
+    const { data, error } = await this.db.rpc('update_ai_prompt_draft', { p_prompt_key: key, p_version_id: versionId, p_actor_id: actorId,
+      p_system_prompt: value.system_prompt, p_developer_prompt: value.developer_prompt, p_user_template: value.user_template, p_change_note: note });
+    if (error) throw error;
+    return one<PromptVersion>(data);
+  }
+  async activatePromptVersion(key: PromptKey, versionId: string, actorId: string, expectedActiveVersionId: string): Promise<PromptVersion> {
+    const { data, error } = await this.db.rpc('activate_ai_prompt_version', { p_prompt_key: key, p_version_id: versionId,
+      p_actor_id: actorId, p_expected_active_version_id: expectedActiveVersionId });
+    if (error) throw error;
+    return one<PromptVersion>(data);
+  }
+  async restorePromptVersion(key: PromptKey, sourceVersionId: string, actorId: string, note: string): Promise<PromptVersion> {
+    const { data, error } = await this.db.rpc('restore_ai_prompt_version', { p_prompt_key: key, p_source_version_id: sourceVersionId,
+      p_actor_id: actorId, p_change_note: note });
+    if (error) throw error;
+    return one<PromptVersion>(data);
+  }
+  async listPromptAudit(key: PromptKey, limit: number): Promise<PromptAuditRecord[]> {
+    const templateId = await this.getPromptTemplateId(key);
+    const { data, error } = await this.db.from('ai_prompt_audit_log').select('*').eq('template_id', templateId)
+      .order('created_at', { ascending: false }).limit(Math.min(100, Math.max(1, limit)));
+    if (error) throw error;
+    return (data ?? []) as PromptAuditRecord[];
   }
 }

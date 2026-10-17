@@ -104,16 +104,9 @@ describe('MODU2 API', () => {
     expect(body.suggestions.length).toBeGreaterThanOrEqual(2);
     expect(body.suggestions.length).toBeLessThanOrEqual(3);
     expect(body.message).toContain('음식 페어링');
-    expect(body.request_prompt[1].content).toContain('사용자가 지정한 조건은');
-    expect(body.request_prompt[1].content).toContain('여러 국가·종류·브랜드·시대·생물 등으로 이루어진 대상 집합이나 복수 대상을 비교·분류하는 요청');
-    expect(body.request_prompt[1].content).toContain('첫 번째는 원래 질문에 가장 직접적으로 답하는 학습 주제');
-    expect(body.request_prompt[1].content).toContain('여러 국가·종류·브랜드·시대·생물 등으로 이루어진 대상 집합');
-    expect(body.request_prompt[1].content).toContain('비교 집합은 유지하되 관점은 달리하세요');
-    expect(body.request_prompt).toMatchObject([
-      { role: 'system' }, { role: 'developer' }, { role: 'user', content: expect.stringContaining('"original_request":"와인"') },
-    ]);
+    for (const key of ['request_prompt', 'messages', 'system_prompt', 'developer_prompt', 'user_template']) expect(body).not.toHaveProperty(key);
   });
-  it('shows the exact messages sent in the OpenAI recommendation request', async () => {
+  it('sends exact messages upstream without returning them to users', async () => {
     let outbound: Record<string, unknown> | undefined;
     const client = new OpenAI({ apiKey: 'local-test-key', maxRetries: 0, fetch: async (_input, init) => {
       outbound = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -137,11 +130,10 @@ describe('MODU2 API', () => {
           body: JSON.stringify({ original_request, refinement_request: '', previous_suggestions: [] }) });
         expect(response.status).toBe(200);
         const body = await response.json();
-        expect(body.request_prompt).toEqual(outbound?.messages);
-        expect(body.request_prompt.map((message: { role: string }) => message.role)).toEqual(['system', 'developer', 'user']);
-        expect(JSON.parse(body.request_prompt[2].content).original_request).toBe(original_request);
-        expect(JSON.stringify(body.request_prompt)).not.toContain('local-test-key');
-        expect(JSON.stringify(body.request_prompt)).not.toContain('ai_usage_session_token');
+        for (const key of ['request_prompt', 'messages', 'system_prompt', 'developer_prompt', 'user_template']) expect(body).not.toHaveProperty(key);
+        expect(outbound?.messages.map((message: { role: string }) => message.role)).toEqual(['system', 'developer', 'user']);
+        expect(JSON.parse(outbound?.messages[2].content).original_request).toBe(original_request);
+        expect(JSON.stringify(body)).not.toContain('local-test-key');
       }
     } finally { await new Promise<void>(resolve => promptServer.close(() => resolve())); }
   });

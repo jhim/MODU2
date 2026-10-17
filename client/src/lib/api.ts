@@ -17,6 +17,11 @@ export interface ContentListResponse {
 export interface ImportPreview {
   cards: Flashcard[]; issues: { row: number; message: string }[];
 }
+export type AdminPromptKey = 'RECOMMEND' | 'FLASHCARD';
+export type AdminPromptVersion = { id: string; template_id: string; version_number: number; system_prompt: string; developer_prompt: string;
+  user_template: string; status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'; change_note: string | null; created_at: string; activated_at: string | null };
+export type AdminPromptTemplate = { id: string; prompt_key: AdminPromptKey; name: string; description: string; is_enabled: boolean; created_at: string; versions: AdminPromptVersion[] };
+export type AdminPromptAudit = { id: string; template_id: string; version_id: string | null; action: string; change_summary: string; created_at: string };
 let tokenProvider: () => string | null = () => null;
 export function setAccessTokenProvider(provider: () => string | null) { tokenProvider = provider; }
 async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
@@ -39,7 +44,7 @@ export const api = {
     return request<ContentListResponse>('/api/learning-sets?' + params);
   },
   suggestions: (body: { original_request: string; refinement_request: string; previous_suggestions: Suggestion[]; ai_usage_session_id?: string; ai_usage_session_token?: string }) =>
-    request<{ message: string; suggestions: Suggestion[]; request_prompt: RequestPromptMessage[]; ai_usage_session_id: string; ai_usage_session_token: string }>('/api/ai/suggestions', { method: 'POST', body: JSON.stringify(body) }),
+    request<{ message: string; suggestions: Suggestion[]; ai_usage_session_id: string; ai_usage_session_token: string }>('/api/ai/suggestions', { method: 'POST', body: JSON.stringify(body) }),
   create: (body: CreateSetRequest) => request<ContentSet>('/api/learning-sets', { method: 'POST', body: JSON.stringify(body) }),
   get: (id: string) => request<ContentSet>('/api/learning-sets/' + encodeURIComponent(id)),
   createImported: (body: { title: string; cards: Flashcard[]; source_mode: SourceMode; ai_usage_session_id?: string; ai_usage_session_token?: string }) =>
@@ -62,6 +67,22 @@ export const api = {
     }, body: file }),
   extractPhoto: (file: File) => request<{ cards: Flashcard[]; review_card_indexes: number[]; ai_usage_session_id: string; ai_usage_session_token: string }>('/api/import/photo', {
     method: 'POST', headers: { 'content-type': file.type }, body: file }),
+  adminAccess: () => request<{ is_admin: boolean }>('/api/admin/access'),
+  adminPrompts: () => request<{ prompts: AdminPromptTemplate[] }>('/api/admin/prompts'),
+  adminPromptVersions: (key: AdminPromptKey) => request<{ versions: AdminPromptVersion[] }>(`/api/admin/prompts/${key}/versions`),
+  adminCreateDraft: (key: AdminPromptKey, change_note: string) => request<{ version: AdminPromptVersion }>(`/api/admin/prompts/${key}/drafts`, { method: 'POST', body: JSON.stringify({ change_note }) }),
+  adminUpdateDraft: (key: AdminPromptKey, id: string, value: { system_prompt: string; developer_prompt: string; user_template: string; change_note: string }) =>
+    request<{ version: AdminPromptVersion }>(`/api/admin/prompts/${key}/drafts/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(value) }),
+  adminValidateDraft: (key: AdminPromptKey, id: string, value: { system_prompt: string; developer_prompt: string; user_template: string }) =>
+    request<{ valid: boolean; errors: string[] }>(`/api/admin/prompts/${key}/drafts/${encodeURIComponent(id)}/validate`, { method: 'POST', body: JSON.stringify(value) }),
+  adminActivate: (key: AdminPromptKey, id: string, expected_active_version_id: string) => request<{ version: AdminPromptVersion }>(
+    `/api/admin/prompts/${key}/versions/${encodeURIComponent(id)}/activate`, { method: 'POST', body: JSON.stringify({ expected_active_version_id }) }),
+  adminRestore: (key: AdminPromptKey, id: string, change_note: string) => request<{ version: AdminPromptVersion }>(
+    `/api/admin/prompts/${key}/versions/${encodeURIComponent(id)}/restore`, { method: 'POST', body: JSON.stringify({ change_note }) }),
+  adminAudit: (key: AdminPromptKey) => request<{ audit_logs: AdminPromptAudit[] }>(`/api/admin/prompts/${key}/audit-logs`),
+  adminPreview: (key: AdminPromptKey, version_id: string, input: { original_request: string; refinement_request: string;
+    previous_titles: string[]; selected_topic: string; learning_goal: string }) => request<{ prompt_key: AdminPromptKey; version_id: string | null; version_number: number | null; fallback: boolean; messages: RequestPromptMessage[] }>(
+      `/api/admin/prompts/${key}/preview`, { method: 'POST', body: JSON.stringify({ version_id, input }) }),
   download: async (id: string, format: 'txt' | 'xlsx') => {
     const headers = new Headers();
     const token = tokenProvider(); if (token) headers.set('authorization', 'Bearer ' + token);

@@ -2,13 +2,14 @@ import OpenAI, { APIError } from 'openai';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import { GeneratedSetSchema, SuggestionsResponseSchema, type CreateSetRequest, type SuggestionsResponse } from '../../../shared/schemas/index.js';
-import { IMAGE_EXTRACTION_DEVELOPER_PROMPT, IMAGE_EXTRACTION_SYSTEM_PROMPT,
-  buildFlashcardPromptMessages, buildSuggestionPromptMessages, type SuggestionPromptMessage } from '../prompts/index.js';
+import { IMAGE_EXTRACTION_DEVELOPER_PROMPT, IMAGE_EXTRACTION_SYSTEM_PROMPT } from '../prompts/index.js';
 import { mockFlashcards } from './mock-flashcards.js';
 import { logMetric } from '../lib/metrics.js';
 import { calculateAiUsage, type AiUsageRecord } from './ai-pricing.js';
+import { buildRuntimePromptMessages, loadRuntimePrompt } from '../prompts/runtime.js';
+import type { PromptRepository } from '../prompts/repository.js';
 
-export type AiCallResult<T> = { data: T; usage: AiUsageRecord | null; requestPrompt?: SuggestionPromptMessage[] };
+export type AiCallResult<T> = { data: T; usage: AiUsageRecord | null };
 
 export interface AiService {
   suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, requestId: string): Promise<AiCallResult<SuggestionsResponse>>;
@@ -123,7 +124,7 @@ export class MockAiService implements AiService {
     return { data: SuggestionsResponseSchema.parse({
       message: subject + '에 대해 어떤 내용을 학습하고 싶으세요?',
       suggestions: scopedTopics.map((topic, index) => ({ id: `s${index + 1}`, ...topic })),
-    }), usage: null, requestPrompt: buildSuggestionPromptMessages(input) };
+    }), usage: null };
   }
   async generate(input: CreateSetRequest, _requestId: string): Promise<AiCallResult<{ title: string; cards: { key: string; values: string[] }[] }>> {
     const topic = input.selected_topic;
@@ -147,7 +148,7 @@ export class AiProviderError extends Error {
 }
 export class OpenAiService implements AiService {
   private readonly client: OpenAI;
-  constructor(apiKey: string, private readonly model: string, client?: OpenAI) {
+  constructor(apiKey: string, private readonly model: string, client?: OpenAI, private readonly promptRepository?: PromptRepository) {
     this.client = client ?? new OpenAI({ apiKey, timeout: 30_000, maxRetries: 1 });
   }
   private async request<T>(operation: AiOperation, id: string, call: () => Promise<T>): Promise<T> {
@@ -163,7 +164,10 @@ export class OpenAiService implements AiService {
   }
   async suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, id: string): Promise<AiCallResult<SuggestionsResponse>> {
     const started = performance.now();
-    const requestPrompt = buildSuggestionPromptMessages(input);
+    const promptSnapshot = await loadRuntimePrompt(this.promptRepository, 'RECOMMEND', id);
+    const requestPrompt = buildRuntimePromptMessages('RECOMMEND', promptSnapshot.prompt, input);
+    logMetric('ai_prompt_selected', { request_id: id, prompt_key: 'RECOMMEND', version_id: promptSnapshot.versionId,
+      version_number: promptSnapshot.versionNumber, fallback: promptSnapshot.fallback });
     const response = await this.request('suggestions', id, () => this.client.chat.completions.parse({
       model: this.model,
       messages: requestPrompt,
@@ -181,7 +185,7 @@ export class OpenAiService implements AiService {
         refused: Boolean(response.choices[0]?.message.refusal) });
       throw new AiProviderError('suggestions', undefined, usage);
     }
-    try { return { data: SuggestionsResponseSchema.parse(content), usage, requestPrompt }; }
+    try { return { data: SuggestionsResponseSchema.parse(content), usage }; }
     catch (error) {
       logMetric('ai_response_invalid', { request_id: id, operation: 'suggestions', model: this.model,
         openai_request_id: response._request_id ?? undefined, error_type: error instanceof Error ? error.name : 'unknown' });
@@ -190,8 +194,12 @@ export class OpenAiService implements AiService {
   }
   async generate(input: CreateSetRequest, id: string) {
     const started = performance.now();
+    const promptSnapshot = await loadRuntimePrompt(this.promptRepository, 'FLASHCARD', id);
+    const requestPrompt = buildRuntimePromptMessages('FLASHCARD', promptSnapshot.prompt, input);
+    logMetric('ai_prompt_selected', { request_id: id, prompt_key: 'FLASHCARD', version_id: promptSnapshot.versionId,
+      version_number: promptSnapshot.versionNumber, fallback: promptSnapshot.fallback });
     const response = await this.request('flashcard_generation', id, () => this.client.chat.completions.parse({
-      model: this.model, messages: buildFlashcardPromptMessages(input),
+      model: this.model, messages: requestPrompt,
       response_format: responseFormat(GeneratedSetSchema, 'learning_flashcards'),
       max_completion_tokens: 5600,
     }));

@@ -1,26 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/auth';
-import { api, setAccessTokenProvider, type ContentListResponse, type ContentSet, type RequestPromptMessage, type SourceMode } from '../lib/api';
+import { api, setAccessTokenProvider, type ContentListResponse, type ContentSet, type SourceMode } from '../lib/api';
 import type { Flashcard, Suggestion } from '../../../shared/schemas/index';
 import { AuthPanel } from '../components/AuthPanel';
+import { PromptAdminPage } from '../components/PromptAdminPage';
 import { ContentEditor } from '../components/ContentEditor';
 import { ImportPanel } from '../components/ImportPanel';
 import { Button, Card, Input } from '../components/ui';
 
-type Screen = 'home' | 'suggestions' | 'generating' | 'study' | 'library' | 'editor' | 'import' | 'auth';
+type Screen = 'home' | 'suggestions' | 'generating' | 'study' | 'library' | 'editor' | 'import' | 'auth' | 'admin-prompts';
 type Draft = { title: string; cards: Flashcard[]; sourceMode: SourceMode; issues: { row: number; message: string }[]; reviewIndexes?: number[]; aiUsageSessionId?: string; aiUsageSessionToken?: string };
 type SaveDraft = { draft: Draft; id?: string; expectedUpdatedAt?: string };
 const SAMPLE_TOPICS = ['와인의 역사', '악보의 기본 구성 요소', '17세기 세계사', '초등학교 4학년 영어 단어'];
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home');
   const [session, setSession] = useState<Session | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ContentSet[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [requestPrompt, setRequestPrompt] = useState<RequestPromptMessage[] | null>(null);
-  const [requestPromptOpen, setRequestPromptOpen] = useState(false);
   const [openUsageInfoId, setOpenUsageInfoId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [refinement, setRefinement] = useState('');
@@ -53,6 +53,13 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
   useEffect(() => { setAccessTokenProvider(() => session?.access_token ?? null); }, [session]);
+
+  useEffect(() => {
+    if (!session) { setIsAdmin(false); return; }
+    let current = true;
+    api.adminAccess().then(value => { if (current) setIsAdmin(value.is_admin); }).catch(() => { if (current) setIsAdmin(false); });
+    return () => { current = false; };
+  }, [session]);
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); return; }
@@ -101,12 +108,12 @@ export default function App() {
     if (!subject) { setError('먼저 학습하고 싶은 주제를 입력해 주세요.'); return; }
     const previous = subjectOverride ? [] : suggestions;
     const reuseSession = !subjectOverride && screen === 'suggestions' && aiUsageSessionId && aiUsageSessionToken;
-    setError(''); setBusy(true); setOriginalRequest(subject); setSuggestions(previous); setRequestPrompt(null); setShowResults(false);
+    setError(''); setBusy(true); setOriginalRequest(subject); setSuggestions(previous); setShowResults(false);
     try {
       const data = await api.suggestions({ original_request: subject, refinement_request: refine, previous_suggestions: previous,
         ...(reuseSession ? { ai_usage_session_id: aiUsageSessionId, ai_usage_session_token: aiUsageSessionToken } : {}) });
       setAiUsageSessionId(data.ai_usage_session_id); setAiUsageSessionToken(data.ai_usage_session_token); setSuggestions(data.suggestions); setMessage(data.message);
-      setRequestPrompt(Array.isArray(data.request_prompt) ? data.request_prompt : null); setRefinement(''); setScreen('suggestions');
+      setRefinement(''); setScreen('suggestions');
     } catch (reason) { setError(reason instanceof Error ? reason.message : '추천을 불러오지 못했습니다.'); }
     finally { setBusy(false); }
   }
@@ -130,7 +137,7 @@ export default function App() {
     const last = (activeSet?.cards?.length ?? 0) - 1;
     setCardIndex(index => Math.max(0, Math.min(last, index + delta))); setFlipped(false);
   }
-  function goHome() { setScreen('home'); setActiveSet(null); setError(''); setShowResults(false); setRequestPromptOpen(false); setAiUsageSessionId(null); setAiUsageSessionToken(null); }
+  function goHome() { setScreen('home'); setActiveSet(null); setError(''); setShowResults(false); setAiUsageSessionId(null); setAiUsageSessionToken(null); }
   function openLibrary(scope: 'all' | 'mine' = 'all') {
     setError('');
     if (scope === 'mine' && !session) { setScreen('auth'); setAuthMode('login'); setListScope('mine'); return; }
@@ -189,7 +196,7 @@ export default function App() {
         <button className={screen === 'home' ? 'active' : ''} onClick={goHome}>만들기</button>
         <button className={screen === 'library' ? 'active' : ''} onClick={() => openLibrary('all')}>학습 콘텐츠 목록</button>
       </nav>
-      <div className="account-nav">{session ? <><button onClick={() => openLibrary('mine')}>내 콘텐츠</button><span>{name}</span><button className="account-link" onClick={() => void logout()}>로그아웃</button></>
+      <div className="account-nav">{session ? <><button onClick={() => openLibrary('mine')}>내 콘텐츠</button>{isAdmin && <button className="account-link" onClick={() => setScreen('admin-prompts')}>AI 프롬프트 관리</button>}<span>{name}</span><button className="account-link" onClick={() => void logout()}>로그아웃</button></>
         : <button className="account-link" onClick={() => { setAuthMode('login'); setScreen('auth'); }}>로그인</button>}</div>
     </header>
 
@@ -223,7 +230,6 @@ export default function App() {
     {screen === 'suggestions' && <main className="flow main-width">
       <button className="back-link" onClick={goHome}>← 처음으로</button><div className="step-label"><span>STEP 1</span> 학습 방향 선택</div>
       <h1>{message || originalRequest + '에 대해 어떤 내용을 학습하고 싶으세요?'}</h1><p className="flow-copy">마음에 드는 주제를 선택하면 핵심 플래시카드 10장을 만들어요.</p>
-      {requestPrompt && requestPrompt.length > 0 && <div className="prompt-action"><Button variant="outline" onClick={() => setRequestPromptOpen(true)}>요청 프롬프트 확인</Button></div>}
       <div className="topic-grid">{suggestions.map((suggestion, index) => <button className="topic-card" key={suggestion.id} onClick={() => void createSet(suggestion)}>
         <span className={'topic-number tone-' + index}>0{index + 1}</span><span className="topic-arrow">↗</span><strong>{suggestion.title}</strong>
         <span className="topic-description">{suggestion.description}</span><span className="goal"><span>학습 목표</span>{suggestion.learning_goal}</span>
@@ -290,6 +296,8 @@ export default function App() {
 
     {screen === 'import' && <ImportPanel onReady={onImportReady} onCancel={goHome} />}
 
+    {screen === 'admin-prompts' && isAdmin && <PromptAdminPage onBack={goHome} />}
+
     {screen === 'editor' && draft && <ContentEditor title={draft.title} cards={draft.cards} sourceMode={draft.sourceMode}
       initialUpdatedAt={editing?.updated_at} reviewIndexes={draft.reviewIndexes} onSave={saveEditor}
       onCancel={() => { setDraft(null); setEditing(null); setScreen(editing ? 'library' : 'home'); }}
@@ -324,15 +332,6 @@ export default function App() {
       </div>
     </main>}
 
-    {requestPromptOpen && requestPrompt && <div className="modal-scrim" role="presentation" onClick={() => setRequestPromptOpen(false)}>
-      <section className="prompt-panel" role="dialog" aria-modal="true" aria-labelledby="prompt-heading" onClick={event => event.stopPropagation()}>
-        <h2 id="prompt-heading">AI 요청 프롬프트</h2><p>아래 메시지가 주제 추천 요청에 사용되었습니다.</p>
-        <div className="prompt-messages">{requestPrompt.map((item, index) => <article key={`${item.role}-${index}`}>
-          <strong>{item.role === 'system' ? 'System' : item.role === 'developer' ? 'Developer' : 'User'}</strong><pre>{item.content}</pre>
-        </article>)}</div>
-        <div className="prompt-actions"><Button variant="outline" onClick={() => setRequestPromptOpen(false)}>닫기</Button></div>
-      </section>
-    </div>}
-    <footer className="footer">© MODU2 <span>·</span> Learn something new, every day.</footer>
+        <footer className="footer">© MODU2 <span>·</span> Learn something new, every day.</footer>
   </div>;
 }

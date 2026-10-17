@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import express, { type ErrorRequestHandler, type Request, type Response, type NextFunction } from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { ZodError } from 'zod';
+import { z, ZodError } from 'zod';
 import { CreateSetRequestSchema, EditableCardsSchema, ImportedSetRequestSchema, ListQuerySchema,
   SearchQuerySchema, SuggestionRequestSchema, UpdateSetRequestSchema, type CreateSetRequest } from '../../shared/schemas/index.js';
 import { AiProviderError, type AiService } from './services/ai.js';
@@ -13,9 +13,12 @@ import { inspectImage } from './services/images.js';
 import { createEphemeralAiUsageSecret, issueAiUsageSession, verifyAiUsageSession, type AiUsageSession } from './services/ai-usage-session.js';
 import type { LearningRepository } from './repositories/types.js';
 import { logMetric, requestId as newRequestId } from './lib/metrics.js';
+import { isPromptKey, type PromptRepository } from './prompts/repository.js';
+import { validatePromptTemplate } from './prompts/templates.js';
+import { buildRuntimePromptMessages, loadRuntimePrompt, promptVersionTemplate } from './prompts/runtime.js';
 
 type User = { id: string; email?: string };
-type Deps = { ai: AiService; repository: LearningRepository; enableTestRoutes?: boolean; allowAnonymousPersistence?: boolean; verifyAccessToken?: LearningRepository["verifyAccessToken"]; aiUsageSessionSecret?: string };
+type Deps = { ai: AiService; repository: LearningRepository; promptRepository?: PromptRepository; adminUserIds?: string[]; enableTestRoutes?: boolean; allowAnonymousPersistence?: boolean; verifyAccessToken?: LearningRepository["verifyAccessToken"]; aiUsageSessionSecret?: string };
 function uploadError(res: Response, message: string, status = 400) { return res.status(status).json({ error: message }); }
 function isBuffer(value: unknown): value is Buffer { return Buffer.isBuffer(value); }
 function validImage(bytes: Buffer, type: string): type is 'image/jpeg' | 'image/png' | 'image/webp' {
@@ -60,6 +63,11 @@ function errorStatus(error: any): number | undefined {
 function contentDisposition(name: string) {
   return 'attachment; filename="' + name.replace(/[^a-zA-Z0-9._-]/g, '_') + '"';
 }
+function routeParam(value: string | string[] | undefined): string { return Array.isArray(value) ? value[0] ?? '' : value ?? ''; }
+function stripPromptActorIds(value: object) {
+  const { created_by: _createdBy, activated_by: _activatedBy, actor_user_id: _actorUserId, ...safe } = value as Record<string, unknown>;
+  return safe;
+}
 function resolveAiUsageSession(id: string | undefined, token: string | undefined, secret: string): AiUsageSession {
   if (token && !id) throw Object.assign(new Error('AI 사용량 연결 정보가 올바르지 않습니다.'), { status: 400 });
   if (id && token) {
@@ -95,11 +103,127 @@ export function createApp(deps: Deps) {
     message: { error: '사진 인식 요청이 많습니다. 잠시 후 다시 시도해 주세요.' } });
   const verifyToken = deps.verifyAccessToken ?? deps.repository.verifyAccessToken.bind(deps.repository);
   const requireAuth = getAuthMiddleware(deps.repository, verifyToken);
+  const adminUserIds = new Set((deps.adminUserIds ?? process.env.MODU2_ADMIN_USER_IDS?.split(',') ?? []).map(id => id.trim()).filter(Boolean));
+  const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+    resolveUser(req, deps.repository, verifyToken).then(user => {
+      if (!user) return res.status(401).json({ error: '관리자 로그인이 필요합니다.' });
+      if (!adminUserIds.has(user.id)) return res.status(403).json({ error: '관리자 권한이 필요합니다.' });
+      res.locals.user = user; next();
+    }).catch(next);
+  };
+  const promptRepo = deps.promptRepository ?? ((deps.repository as Partial<PromptRepository>).listPromptTemplates
+    ? deps.repository as LearningRepository & PromptRepository : undefined);
+  const promptKeyParam = (req: Request, res: Response): 'RECOMMEND' | 'FLASHCARD' | null => {
+    const key = routeParam(req.params.promptKey).toUpperCase();
+    if (isPromptKey(key)) return key;
+    res.status(404).json({ error: '프롬프트 유형을 찾을 수 없습니다.' }); return null;
+  };
+  const promptBodySchema = z.object({ system_prompt: z.string(), developer_prompt: z.string(), user_template: z.string(), change_note: z.string().max(500).default('') });
+  const previewInputSchema = z.object({ version_id: z.string().uuid().optional(), input: z.object({
+    original_request: z.string().max(200).default('와인의 역사'), refinement_request: z.string().max(200).default(''),
+    previous_titles: z.array(z.string().max(200)).max(6).default([]), selected_topic: z.string().max(200).default('와인의 역사'),
+    learning_goal: z.string().max(500).default('와인의 역사와 주요 변화를 설명할 수 있다'),
+  }).default({}) });
+
   const rawText = express.raw({ type: 'text/plain', limit: '2mb' });
   const rawXlsx = express.raw({ type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', limit: '5mb' });
   const rawImage = express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '8mb' });
 
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
+  app.get('/api/admin/access', requireAuth, (req, res) => res.json({ is_admin: adminUserIds.has((res.locals.user as User).id) }));
+  app.get('/api/admin/prompts', requireAdmin, async (_req, res, next) => {
+    if (!promptRepo) return res.status(503).json({ error: '프롬프트 저장소를 사용할 수 없습니다.' });
+    try {
+      const prompts = await promptRepo.listPromptTemplates();
+      return res.json({ prompts: prompts.map(template => ({ ...template, versions: template.versions?.map(version => stripPromptActorIds(version)) })) });
+    } catch (error) { return next(error); }
+  });
+  app.get('/api/admin/prompts/:promptKey/versions', requireAdmin, async (req, res, next) => {
+    const key = promptKeyParam(req, res); if (!key) return;
+    if (!promptRepo) return res.status(503).json({ error: '프롬프트 저장소를 사용할 수 없습니다.' });
+    try { return res.json({ versions: (await promptRepo.listPromptVersions(key)).map(version => stripPromptActorIds(version)) }); } catch (error) { return next(error); }
+  });
+  app.get('/api/admin/prompts/:promptKey/versions/:versionId', requireAdmin, async (req, res, next) => {
+    const key = promptKeyParam(req, res); if (!key) return;
+    if (!promptRepo) return res.status(503).json({ error: '프롬프트 저장소를 사용할 수 없습니다.' });
+    try {
+      const version = await promptRepo.getPromptVersion(key, routeParam(req.params.versionId));
+      return version ? res.json({ version: stripPromptActorIds(version) }) : res.status(404).json({ error: '프롬프트 버전을 찾을 수 없습니다.' });
+    } catch (error) { return next(error); }
+  });
+  app.post('/api/admin/prompts/:promptKey/drafts', requireAdmin, async (req, res, next) => {
+    const key = promptKeyParam(req, res); if (!key) return;
+    if (!promptRepo) return res.status(503).json({ error: '프롬프트 저장소를 사용할 수 없습니다.' });
+    const parsed = z.object({ change_note: z.string().max(500).default('초안 작성') }).safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: '변경 메모를 확인해 주세요.' });
+    try { return res.status(201).json({ version: stripPromptActorIds(await promptRepo.createPromptDraft(key, (res.locals.user as User).id, parsed.data.change_note)) }); }
+    catch (error) { return next(error); }
+  });
+  app.put('/api/admin/prompts/:promptKey/drafts/:versionId', requireAdmin, async (req, res, next) => {
+    const key = promptKeyParam(req, res); if (!key) return;
+    if (!promptRepo) return res.status(503).json({ error: '프롬프트 저장소를 사용할 수 없습니다.' });
+    const parsed = promptBodySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: '프롬프트 내용을 확인해 주세요.' });
+    const { change_note, ...prompt } = parsed.data;
+    const validation = validatePromptTemplate(key, prompt);
+    if (!validation.valid) return res.status(400).json({ error: '템플릿 변수를 확인해 주세요.', validation });
+    try { return res.json({ version: stripPromptActorIds(await promptRepo.updatePromptDraft(key, routeParam(req.params.versionId), (res.locals.user as User).id, validation.value!, change_note)) }); }
+    catch (error) { return next(error); }
+  });
+  app.post('/api/admin/prompts/:promptKey/drafts/:versionId/validate', requireAdmin, async (req, res) => {
+    const key = promptKeyParam(req, res); if (!key) return;
+    const parsed = promptBodySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ valid: false, errors: parsed.error.issues.map(issue => issue.message) });
+    const { change_note: _note, ...prompt } = parsed.data;
+    return res.json(validatePromptTemplate(key, prompt));
+  });
+  app.post('/api/admin/prompts/:promptKey/versions/:versionId/activate', requireAdmin, async (req, res, next) => {
+    const key = promptKeyParam(req, res); if (!key) return;
+    if (!promptRepo) return res.status(503).json({ error: '프롬프트 저장소를 사용할 수 없습니다.' });
+    const parsed = z.object({ expected_active_version_id: z.string().uuid() }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: '현재 운영 버전 정보가 없어 적용할 수 없습니다. 새로고침 후 다시 시도해 주세요.' });
+    try { return res.json({ version: stripPromptActorIds(await promptRepo.activatePromptVersion(key, routeParam(req.params.versionId), (res.locals.user as User).id, parsed.data.expected_active_version_id)) }); }
+    catch (error) { return next(error); }
+  });
+  app.post('/api/admin/prompts/:promptKey/versions/:versionId/restore', requireAdmin, async (req, res, next) => {
+    const key = promptKeyParam(req, res); if (!key) return;
+    if (!promptRepo) return res.status(503).json({ error: '프롬프트 저장소를 사용할 수 없습니다.' });
+    const parsed = z.object({ change_note: z.string().max(500).default('이전 버전 복원') }).safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: '변경 메모를 확인해 주세요.' });
+    try { return res.status(201).json({ version: stripPromptActorIds(await promptRepo.restorePromptVersion(key, routeParam(req.params.versionId), (res.locals.user as User).id, parsed.data.change_note)) }); }
+    catch (error) { return next(error); }
+  });
+  app.get('/api/admin/prompts/:promptKey/audit-logs', requireAdmin, async (req, res, next) => {
+    const key = promptKeyParam(req, res); if (!key) return;
+    if (!promptRepo) return res.status(503).json({ error: '프롬프트 저장소를 사용할 수 없습니다.' });
+    try { return res.json({ audit_logs: (await promptRepo.listPromptAudit(key, Number(req.query.limit) || 50)).map(entry => stripPromptActorIds(entry)) }); } catch (error) { return next(error); }
+  });
+  app.post('/api/admin/prompts/:promptKey/preview', requireAdmin, async (req, res, next) => {
+    const key = promptKeyParam(req, res); if (!key) return;
+    if (!promptRepo) return res.status(503).json({ error: '프롬프트 저장소를 사용할 수 없습니다.' });
+    const parsed = previewInputSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: '미리보기 입력을 확인해 주세요.' });
+    try {
+      let prompt = null; let versionId: string | undefined; let versionNumber: number | undefined; let fallback = false;
+      if (parsed.data.version_id) {
+        const version = await promptRepo.getPromptVersion(key, parsed.data.version_id);
+        if (!version) return res.status(404).json({ error: '프롬프트 버전을 찾을 수 없습니다.' });
+        const candidate = promptVersionTemplate(version); const validation = validatePromptTemplate(key, candidate);
+        if (!validation.valid) return res.status(400).json({ error: '선택한 프롬프트의 템플릿 변수를 확인해 주세요.', validation });
+        prompt = validation.value!; versionId = version.id; versionNumber = version.version_number;
+      } else {
+        const snapshot = await loadRuntimePrompt(promptRepo, key, res.locals.requestId);
+        prompt = snapshot.prompt; versionId = snapshot.versionId; versionNumber = snapshot.versionNumber; fallback = snapshot.fallback;
+      }
+      const values = key === 'RECOMMEND' ? { original_request: parsed.data.input.original_request,
+        refinement_request: parsed.data.input.refinement_request, previous_suggestions: parsed.data.input.previous_titles.map(title => ({ title })) }
+        : { original_request: parsed.data.input.original_request, selected_topic: parsed.data.input.selected_topic,
+          learning_goal: parsed.data.input.learning_goal };
+      return res.json({ prompt_key: key, version_id: versionId ?? null, version_number: versionNumber ?? null,
+        fallback, messages: buildRuntimePromptMessages(key, prompt, values) });
+    } catch (error) { return next(error); }
+  });
+
   app.get('/api/learning-sets/search', async (req, res, next) => {
     try {
       const parsed = SearchQuerySchema.safeParse(req.query.q);
@@ -122,7 +246,7 @@ export function createApp(deps: Deps) {
       if (usageOwnerId) await deps.repository.claimAiUsageSession(sessionId, usageOwnerId);
       const result = await deps.ai.suggest(suggestionInput, res.locals.requestId);
       if (result.usage) await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'suggestions', usage: result.usage, ownerId: usageOwnerId });
-      return res.json({ ...result.data, request_prompt: result.requestPrompt ?? [], ai_usage_session_id: sessionId, ai_usage_session_token: usageSession.token });
+      return res.json({ ...result.data, ai_usage_session_id: sessionId, ai_usage_session_token: usageSession.token });
     } catch (error) {
       if (error instanceof AiProviderError && error.usage && sessionId) {
         try { await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'suggestions', usage: error.usage, ownerId: usageOwnerId }); }

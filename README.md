@@ -105,10 +105,21 @@ Railway의 Build Variables와 Runtime Variables에 아래 설정을 분리해 �
 | OPENAI_MODEL | 런타임 | Structured Outputs와 이미지 입력을 지원하는 모델, 기본 gpt-4o-mini |
 | SUPABASE_URL | 런타임 | MODU2 전용 Supabase URL |
 | SUPABASE_SERVICE_ROLE_KEY | 런타임 비밀 | 서버 전용 데이터 접근 및 RPC 호출 |
+| MODU2_ADMIN_USER_IDS | 런타임 | 관리자 권한을 부여할 Supabase Auth 사용자 UUID를 쉼표로 구분 |
 | VITE_SUPABASE_URL | 빌드 공개 | 브라우저 Supabase Auth URL |
 | VITE_SUPABASE_ANON_KEY | 빌드 공개 | 브라우저 로그인용 공개 anon key |
 
 로컬 mock에서 Supabase 로그인·JWT 검증을 시험할 때는 .env에 SUPABASE_ANON_KEY도 설정합니다. 이는 공개 anon key이며 service role key로 대체하지 않습니다. mock 데이터는 메모리에만 남고 재시작하면 사라집니다. VITE_ 값이 없으면 프론트 로그인 UI가 비활성화됩니다.
+
+관리자 프롬프트 기능은 인증된 Supabase 사용자 ID가 `MODU2_ADMIN_USER_IDS`에 정확히 포함될 때만 서버에서 허용합니다. 이 변수에는 Supabase Auth의 사용자 UUID만 입력하며 요청 본문의 사용자 ID나 클라이언트 역할 값은 권한 판단에 사용하지 않습니다. 프롬프트 관리 SQL을 운영 DB에 적용한 뒤 Railway 런타임 변수에도 관리자 UUID를 추가해야 메뉴와 API를 사용할 수 있습니다.
+
+## 관리자 AI 프롬프트 관리
+
+신규 증분 마이그레이션 [202610150004_ai_prompt_management.sql](supabase/migrations/202610150004_ai_prompt_management.sql)은 003 사용량 마이그레이션 뒤 Supabase SQL Editor에서 수동 적용합니다. 기존 학습 세트·카드·사용량 데이터는 변경하지 않으며, 현재 코드 프롬프트를 각 유형의 초기 운영 버전 v1로 저장합니다. 이 작업에서는 운영 DB에 SQL을 실행하지 않았습니다.
+
+관리자 메뉴에서 `RECOMMEND`와 `FLASHCARD`의 System/Developer/User 템플릿을 확인하고 초안을 만들 수 있습니다. ACTIVE 본문은 UI와 DB 함수에서 직접 수정하지 않으며, 변경은 새 DRAFT에 저장한 뒤 현재 ACTIVE 버전 ID를 함께 제출해 충돌 여부를 확인하고 원자적으로 적용합니다. 이전 버전 복원은 해당 본문을 새 초안으로 복사하므로 적용 전 검토가 가능합니다. 모든 수정·복원·적용은 audit log에 기록됩니다. 공개 역할은 관리 테이블과 RPC에 접근할 수 없고, 서버는 JWT 검증 후 allowlist를 검사한 다음 service role로 RPC를 호출합니다.
+
+미리보기는 저장소의 동일 메시지 빌더와 변수 치환을 사용하며 OpenAI API를 호출하지 않습니다. User 템플릿은 JSON 값으로 안전하게 삽입되는 변수를 사용합니다. RECOMMEND: `{{original_request_json}}`, `{{refinement_request_json}}`, `{{previous_titles_json}}`; FLASHCARD: `{{original_request_json}}`, `{{selected_topic_json}}`, `{{learning_goal_json}}`. 응답 스키마와 서버 측 Zod 검증은 편집 대상이 아닙니다.
 
 ## 파일 업로드 및 AI 보호
 

@@ -153,15 +153,6 @@ h1 { color: #22283a; letter-spacing: -.055em; }
 .confirm-panel h2 { margin: 0 0 10px; color: #292e40; font-size: 18px; }
 .confirm-panel p { color: #7e8392; font-size: 12px; line-height: 1.7; }
 .confirm-panel > div:last-child { display: flex; justify-content: flex-end; gap: 7px; margin-top: 18px; }
-.prompt-action { display: flex; justify-content: flex-end; margin-top: 18px; }
-.prompt-panel { width: min(100%, 720px); max-height: min(82vh, 760px); overflow: auto; padding: 23px; background: white; border-radius: 16px; box-shadow: 0 18px 60px #17182a30; }
-.prompt-panel h2 { margin: 0 0 8px; color: #292e40; font-size: 18px; }
-.prompt-panel > p { margin: 0 0 16px; color: #7e8392; font-size: 12px; }
-.prompt-messages { display: grid; gap: 12px; }
-.prompt-messages article { padding: 13px; border: 1px solid #e8e9ef; border-radius: 10px; background: #fafaff; }
-.prompt-messages article strong { color: #6759c1; font-size: 11px; }
-.prompt-messages pre { margin: 8px 0 0; color: #41475a; font-family: inherit; font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
-.prompt-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 .replace-preview { display: grid; grid-template-columns: 100px 1fr; gap: 7px; padding: 12px; background: #f7f7fb; color: #787d8d; font-size: 10px; }
 .replace-preview strong { color: #6e7384; }
 .auth-page { display: grid; align-content: start; }
@@ -171,6 +162,33 @@ h1 { color: #22283a; letter-spacing: -.055em; }
 .auth-panel form { display: grid; gap: 14px; margin-top: 22px; }
 .auth-panel form > button { margin-top: 3px; }
 .auth-links { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 7px; margin-top: 15px; }
+.prompt-admin { padding: 38px 0 80px; }
+.prompt-admin-heading, .prompt-lab-heading, .prompt-pane-heading, .prompt-rail-heading, .prompt-preview-title { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.prompt-admin-heading h1 { margin: 13px 0 7px; font-size: clamp(27px,4vw,36px); letter-spacing: -.045em; }
+.prompt-admin-heading p, .prompt-lab-heading p { margin: 0; color: #84899a; font-size: 12px; line-height: 1.7; }
+.prompt-admin-tabs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin: 25px 0 16px; }
+.prompt-admin-tabs button { display: grid; gap: 5px; padding: 15px 17px; border: 1px solid #e5e6ef; border-radius: 12px; background: #fff; color: #353a4d; text-align: left; cursor: pointer; }
+.prompt-admin-tabs button.selected { border-color: #8e82dc; box-shadow: 0 0 0 3px #8e82dc18; }
+.prompt-admin-tabs button strong { font-size: 13px; }.prompt-admin-tabs button span { color: #888d9c; font-size: 11px; }
+.prompt-notice { padding: 11px 14px; border-radius: 9px; color: #26715d; background: #e9f5f0; font-size: 12px; }
+.prompt-admin-grid { display: grid; grid-template-columns: minmax(230px, .32fr) minmax(0,1fr); gap: 15px; align-items: start; }
+.prompt-version-rail, .prompt-editor-pane, .prompt-lab, .prompt-history-pane { padding: 20px; border: 1px solid #e7e8ef; border-radius: 14px; background: #fff; }
+.prompt-rail-heading { align-items: flex-start; margin-bottom: 14px; }.prompt-rail-heading > div { display: grid; gap: 5px; }.prompt-rail-heading strong { font-size: 13px; }.prompt-rail-heading span { color: #8b90a0; font-size: 10px; }
+.prompt-version-item { width: 100%; display: grid; gap: 7px; padding: 12px; margin-top: 7px; border: 1px solid transparent; border-radius: 9px; background: #fafaff; color: #363b4d; text-align: left; cursor: pointer; }
+.prompt-version-item.selected { border-color: #b6adeb; background: #f5f3ff; }.prompt-version-item > span:first-child { display: flex; justify-content: space-between; align-items: center; }.prompt-version-item strong { font-size: 12px; }
+.prompt-status { display: inline-flex; padding: 4px 7px; border-radius: 20px; color: #686d7d; background: #eff0f5; font-size: 9px; font-style: normal; white-space: nowrap; }.status-active,.status-live { color: #5546b1; background: #eeebff; }.status-draft { color: #8a5a18; background: #fff2dc; }.status-archived { color: #767b8a; background: #eff0f4; }
+.prompt-version-note { overflow: hidden; color: #656a7a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.prompt-version-item time,.prompt-audit-list time { color: #9a9eaa; font-size: 9px; }.restore-button { width: 100%; margin-top: 12px; }
+.prompt-pane-heading { align-items: flex-start; margin-bottom: 15px; }.prompt-pane-heading h2,.prompt-lab-heading h2 { margin: 9px 0 0; font-size: 17px; letter-spacing: -.025em; }.prompt-toolbar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.prompt-field { display: grid; gap: 7px; margin-top: 12px; color: #656a7b; font-size: 11px; font-weight: 650; }
+.prompt-field input,.prompt-field textarea,.prompt-preview-inputs input { width: 100%; border: 1px solid #e5e6ed; border-radius: 8px; padding: 10px 11px; background: #fff; color: #33394b; font: inherit; font-weight: 400; outline: none; }
+.prompt-field input:focus,.prompt-field textarea:focus,.prompt-preview-inputs input:focus { border-color: #8e82dc; box-shadow: 0 0 0 3px #8e82dc18; }
+.prompt-field input:disabled,.prompt-field textarea:disabled { background: #f7f7fa; color: #64697a; }
+.prompt-field textarea { min-height: 130px; resize: vertical; font-size: 11px; line-height: 1.65; }.prompt-field .prompt-template-textarea { min-height: 96px; font-family: ui-monospace,Consolas,monospace; }.prompt-field small { color: #888d9b; font-size: 10px; font-weight: 400; }
+.prompt-lab { margin-top: 15px; }.prompt-lab-heading { align-items: center; }.prompt-lab-heading h2 { margin-bottom: 5px; }.prompt-preview-inputs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin-top: 17px; }.prompt-preview-inputs label { display: grid; gap: 6px; color: #74798a; font-size: 10px; }.prompt-preview-inputs input { min-width: 0; font-size: 11px; }
+.prompt-preview-result { display: grid; gap: 9px; margin-top: 16px; }.prompt-preview-title { padding-bottom: 9px; border-bottom: 1px solid #ececf2; color: #4a5062; font-size: 11px; }.prompt-preview-result article { padding: 12px; border: 1px solid #e8e9ef; border-radius: 9px; background: #fbfbfe; }.prompt-preview-result article strong { color: #6658c0; font-size: 10px; text-transform: capitalize; }.prompt-preview-result pre,.prompt-compare pre { margin: 7px 0 0; color: #4d5264; font: 10px/1.7 ui-monospace,Consolas,monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.prompt-history-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 15px; margin-top: 15px; align-items: start; }.prompt-history-pane .prompt-lab-heading { margin-bottom: 15px; }.prompt-history-pane select { max-width: 180px; padding: 8px; border: 1px solid #e3e4ec; border-radius: 8px; background: white; color: #54596b; font-size: 10px; }
+.prompt-compare { display: grid; gap: 13px; }.prompt-compare-head,.prompt-compare section > div { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }.prompt-compare-head { color: #696e7e; font-size: 10px; font-weight: 700; }.prompt-compare section > strong { display: block; margin-bottom: 6px; color: #686d7d; font-size: 10px; }.prompt-compare pre { max-height: 220px; overflow: auto; padding: 9px; border-radius: 7px; background: #f7f7fb; }.prompt-audit-list { display: grid; gap: 8px; }.prompt-audit-list article { display: grid; gap: 5px; padding: 10px 0; border-bottom: 1px solid #f0f0f4; }.prompt-audit-list article > span { color: #6b5fc1; font-size: 9px; }.prompt-audit-list strong { color: #515667; font-size: 11px; font-weight: 550; }.prompt-empty { color: #969aa7; font-size: 11px; }
+@media (max-width: 760px) { .prompt-admin { padding-top: 25px; }.prompt-admin-grid,.prompt-history-grid { grid-template-columns: 1fr; }.prompt-version-rail { padding: 15px; }.prompt-editor-pane,.prompt-lab,.prompt-history-pane { padding: 15px; }.prompt-preview-inputs { grid-template-columns: 1fr; }.prompt-pane-heading { flex-direction: column; }.prompt-toolbar { width: 100%; justify-content: flex-start; }.prompt-toolbar .ui-button { flex: 1; }.prompt-admin-heading { align-items: flex-start; }.prompt-admin-tabs button { padding: 12px; } }
 .study-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 @media (max-width: 760px) {
   .topbar { height: auto; min-height: 62px; flex-wrap: wrap; gap: 3px 10px; padding-top: 9px; padding-bottom: 9px; }

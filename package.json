@@ -11,7 +11,7 @@
     "start": "node dist-server/server/src/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && node tests/e2e/run.mjs"
+    "test:e2e": "node tests/e2e/run.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
