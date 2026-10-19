@@ -260,7 +260,7 @@ export default function App() {
           <button className={listScope === 'mine' ? 'selected' : ''} onClick={() => { if (!session) { setScreen('auth'); return; } setListScope('mine'); setListPage(1); }}>내 콘텐츠</button></div></div>
       {error && <p className="error-message" role="alert">{error}</p>}
       {busy && <p className="library-state">목록을 불러오는 중…</p>}
-      {!busy && listData?.results.length === 0 && <Card className="empty-library"><strong>아직 콘텐츠가 없습니다.</strong><span>자료를 가져오거나 AI로 새 카드를 만들어 보세요.</span><Button onClick={openNewImport}>콘텐츠 만들기</Button></Card>}
+      {!busy && listData?.results.length === 0 && <Card className="empty-library"><strong>아직 콘텐츠가 없습니다.</strong><span>자료를 가져오거나 AI로 새 카드를 만들어 보세요.</span><Button onClick={goHome}>콘텐츠 만들기</Button></Card>}
       {!busy && listData && listData.results.length > 0 && <div className="content-list">
         {listData.results.map(item => <article className="content-row" key={item.id}>
           <div className="content-main">
