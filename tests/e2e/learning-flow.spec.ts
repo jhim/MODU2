@@ -51,7 +51,9 @@ test('search existing content and complete a mocked learning flow', async ({ pag
   await page.getByRole('textbox', { name: /예: 와인과 어울리는 음식/ }).fill('와인 음식 페어링');
   await page.getByRole('button', { name: '다시 추천' }).click();
   await expect(page.getByRole('heading', { name: /와인 음식 페어링에 대해/ })).toBeVisible();
+  const generationRequest = page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/api/learning-sets'));
   await page.locator('.topic-card').first().click();
+  expect((await generationRequest).postDataJSON()).toMatchObject({ original_request: '와인', refinement_request: '와인 음식 페어링' });
   await expect(page.getByRole('heading', { name: /와인 음식 페어링의 주요 용어와 원리/ })).toBeVisible();
   await expect(page.locator('.flashcard')).toBeVisible();
   await page.locator('.flashcard').click();

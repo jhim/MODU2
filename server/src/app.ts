@@ -217,7 +217,7 @@ export function createApp(deps: Deps) {
       }
       const values = key === 'RECOMMEND' ? { original_request: parsed.data.input.original_request,
         refinement_request: parsed.data.input.refinement_request, previous_suggestions: parsed.data.input.previous_titles.map(title => ({ title })) }
-        : { original_request: parsed.data.input.original_request, selected_topic: parsed.data.input.selected_topic,
+        : { original_request: parsed.data.input.original_request, refinement_request: parsed.data.input.refinement_request, selected_topic: parsed.data.input.selected_topic,
           learning_goal: parsed.data.input.learning_goal };
       return res.json({ prompt_key: key, version_id: versionId ?? null, version_number: versionNumber ?? null,
         fallback, messages: buildRuntimePromptMessages(key, prompt, values) });

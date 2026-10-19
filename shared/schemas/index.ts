@@ -35,6 +35,7 @@ export const GeneratedSetSchema = z.object({
 });
 export const CreateSetRequestSchema = z.object({
   original_request: z.string().trim().min(1).max(200),
+  refinement_request: z.string().trim().max(200).optional(),
   selected_topic: z.string().trim().min(1).max(160),
   learning_goal: z.string().trim().min(1).max(240),
   client_request_id: z.string().uuid(),

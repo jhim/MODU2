@@ -77,12 +77,269 @@ const examples: Record<string, [string, string][]> = {
   ],
 };
 
-export function mockFlashcards(input: Pick<CreateSetRequest, 'original_request' | 'selected_topic' | 'learning_goal'>): { title: string; cards: Flashcard[] } | null {
+// Curated fixtures only: these do not classify or evaluate production model output.
+Object.assign(examples, {
+  "재미있는 넌센스 퀴즈": [
+    [
+      "소가 계단을 올라가면?",
+      "소오름"
+    ],
+    [
+      "왕이 넘어지면?",
+      "킹콩"
+    ],
+    [
+      "왕이 작별 인사를 하면?",
+      "바이킹"
+    ],
+    [
+      "세상에서 가장 큰 코는?",
+      "멕시코"
+    ],
+    [
+      "가장 억울한 도형은?",
+      "원통"
+    ],
+    [
+      "오리가 얼면?",
+      "언덕"
+    ],
+    [
+      "아몬드가 죽으면?",
+      "다이아몬드"
+    ],
+    [
+      "소가 웃으면?",
+      "우하하"
+    ],
+    [
+      "자동차가 깜짝 놀라면?",
+      "카놀라"
+    ],
+    [
+      "딸기가 직장을 잃으면?",
+      "딸기시럽"
+    ]
+  ],
+  "한국사 상식 문제": [
+    [
+      "조선을 건국한 사람은?",
+      "이성계"
+    ],
+    [
+      "훈민정음을 창제한 왕은?",
+      "세종"
+    ],
+    [
+      "신라가 삼국 통일 과정에서 동맹을 맺은 중국 왕조는?",
+      "당"
+    ],
+    [
+      "고려를 건국한 사람은?",
+      "왕건"
+    ],
+    [
+      "임진왜란이 시작된 해는?",
+      "1592년"
+    ],
+    [
+      "한글 창제 당시의 이름은?",
+      "훈민정음"
+    ],
+    [
+      "수원 화성 건설을 추진한 조선의 왕은?",
+      "정조"
+    ],
+    [
+      "신라의 수도였던 도시는?",
+      "경주"
+    ],
+    [
+      "조선 후기 수원 화성 설계에 참여한 실학자는?",
+      "정약용"
+    ],
+    [
+      "대한민국이 광복을 맞은 해는?",
+      "1945년"
+    ]
+  ],
+  "영어 회화 문장": [
+    [
+      "How are you?",
+      "어떻게 지내세요?"
+    ],
+    [
+      "Could I get a cup of coffee?",
+      "커피 한 잔 주시겠어요?"
+    ],
+    [
+      "Where is the station?",
+      "역은 어디에 있나요?"
+    ],
+    [
+      "How much is this?",
+      "이것은 얼마인가요?"
+    ],
+    [
+      "Nice to meet you.",
+      "만나서 반갑습니다."
+    ],
+    [
+      "Can you help me?",
+      "도와주시겠어요?"
+    ],
+    [
+      "I would like some water.",
+      "물을 좀 마시고 싶어요."
+    ],
+    [
+      "What time is it?",
+      "몇 시인가요?"
+    ],
+    [
+      "Please say that again.",
+      "다시 말씀해 주세요."
+    ],
+    [
+      "Have a nice day.",
+      "좋은 하루 보내세요."
+    ]
+  ],
+  "영어 문법 빈칸 문제": [
+    [
+      "I ___ to school yesterday. (go)",
+      "went"
+    ],
+    [
+      "She ___ a book now. (read)",
+      "is reading"
+    ],
+    [
+      "They ___ happy yesterday. (be)",
+      "were"
+    ],
+    [
+      "He ___ soccer every Sunday. (play)",
+      "plays"
+    ],
+    [
+      "We have ___ lunch. (eat)",
+      "eaten"
+    ],
+    [
+      "There ___ two cats. (be)",
+      "are"
+    ],
+    [
+      "I ___ not like coffee. (do)",
+      "do"
+    ],
+    [
+      "She is ___ than me. (tall)",
+      "taller"
+    ],
+    [
+      "This is ___ apple. (a/an)",
+      "an"
+    ],
+    [
+      "You must ___ here. (wait)",
+      "wait"
+    ]
+  ],
+  "경제 용어": [
+    [
+      "인플레이션",
+      "물가가 전반적이고 지속적으로 상승하는 현상입니다."
+    ],
+    [
+      "디플레이션",
+      "물가가 전반적이고 지속적으로 하락하는 현상입니다."
+    ],
+    [
+      "기회비용",
+      "어떤 선택으로 포기한 대안 중 가장 가치가 큰 대안의 가치입니다."
+    ],
+    [
+      "수요",
+      "구매자가 일정한 가격에서 재화나 서비스를 구매하려는 의사와 능력입니다."
+    ],
+    [
+      "공급",
+      "판매자가 일정한 가격에서 재화나 서비스를 판매하려는 의사와 능력입니다."
+    ],
+    [
+      "금리",
+      "빌린 돈이나 맡긴 돈에 적용되는 이자의 비율입니다."
+    ],
+    [
+      "환율",
+      "두 나라 통화 사이의 교환 비율입니다."
+    ],
+    [
+      "국내총생산",
+      "일정 기간 한 나라 안에서 생산된 최종 재화와 서비스의 시장 가치입니다."
+    ],
+    [
+      "고정비용",
+      "일정한 범위에서 생산량 변화와 관계없이 발생하는 비용입니다."
+    ],
+    [
+      "변동비용",
+      "생산량에 따라 변하는 비용입니다."
+    ]
+  ],
+  "초등학생 과학 퀴즈": [
+    [
+      "물이 얼면 무엇이 되나요?",
+      "얼음"
+    ],
+    [
+      "식물이 빛을 이용해 양분을 만드는 과정은?",
+      "광합성"
+    ],
+    [
+      "물의 화학식은?",
+      "H₂O"
+    ],
+    [
+      "지구가 한 바퀴 자전하는 데 걸리는 시간은 대략 얼마인가요?",
+      "하루"
+    ],
+    [
+      "달은 스스로 빛을 내나요?",
+      "아니요. 태양빛을 반사합니다."
+    ],
+    [
+      "물체를 지구 쪽으로 끌어당기는 힘은?",
+      "중력"
+    ],
+    [
+      "고체가 액체로 변하는 현상은?",
+      "융해"
+    ],
+    [
+      "액체가 기체로 변하는 현상은?",
+      "기화"
+    ],
+    [
+      "사람이 호흡할 때 몸에서 사용하는 기체는?",
+      "산소"
+    ],
+    [
+      "자석에서 같은 극끼리 가까이하면 어떻게 되나요?",
+      "서로 밀어냅니다."
+    ]
+  ]
+});
+examples['한자'] = examples['7급 한자 시험 필수 한자'];
+
+export function mockFlashcards(input: Pick<CreateSetRequest, 'original_request' | 'refinement_request' | 'selected_topic' | 'learning_goal'>): { title: string; cards: Flashcard[] } | null {
   // Only curated exact topics are supported; unknown inputs keep the generic mock fallback.
   const topic = input.selected_topic.trim();
   const entries = examples[topic];
   if (!entries) return null;
-  const request = `${input.original_request} ${input.learning_goal}`;
+  const request = `${input.original_request} ${input.refinement_request ?? ''} ${input.learning_goal}`;
   const noQuiz = /(?:퀴즈|질문형|문제 풀이).{0,8}(?:말고|아닌|않|없이|제외)/u.test(request);
   const quiz = !noQuiz && /퀴즈|질문형|질문.{0,3}정답|문제 풀이/u.test(`${request} ${topic}`);
   const hanja = topic === '7급 한자 시험 필수 한자';

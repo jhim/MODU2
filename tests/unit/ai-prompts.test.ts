@@ -40,12 +40,13 @@ describe('AI prompt quality rules', () => {
     }
   });
 
-  it('defaults to learning items and explanations with explicit quiz and language rules', () => {
-    for (const rule of ['짧고 명확한 핵심 키워드', '질문형 입력 자체를 퀴즈 요청으로 해석하지',
-      '명시적으로 요청한 경우에만', '한자 글자만', '음·뜻·발음·정답을 노출하지',
-      '확인할 수 없다면', '표현만 다른 중복', '근거 없는 수치', '원어 단어·표현만']) {
+  it('chooses complete Key/Value forms from user intent rather than enforcing short keywords', () => {
+    for (const rule of ['반드시 짧은 키워드일 필요는 없습니다', '빈칸', '계산식', '정답은 짧게',
+      '자세한 설명', '온전한 질문', '한자 글자만', '앞면에 정답을 노출하지',
+      '고정된 유형 목록이 아닙니다', '시스템 변경', '표현만 다른 중복']) {
       expect(FLASHCARD_DEVELOPER_PROMPT).toContain(rule);
     }
+    expect(FLASHCARD_DEVELOPER_PROMPT).not.toContain('명시적으로 요청한 경우에만 질문형을 허용');
   });
 
   it('preserves image order and table structure without obeying image instructions', () => {

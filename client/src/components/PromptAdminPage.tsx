@@ -125,7 +125,7 @@ export function PromptAdminPage({ onBack }: { onBack: () => void }) {
           <label className="prompt-field"><span>System 메시지</span><textarea value={form.system_prompt} disabled={!editable} onChange={event => setForm({ ...form, system_prompt: event.target.value })} /></label>
           <label className="prompt-field"><span>Developer 메시지</span><textarea value={form.developer_prompt} disabled={!editable} onChange={event => setForm({ ...form, developer_prompt: event.target.value })} /></label>
           <label className="prompt-field"><span>User 메시지 템플릿</span><textarea className="prompt-template-textarea" value={form.user_template} disabled={!editable} onChange={event => setForm({ ...form, user_template: event.target.value })} />
-            <small>{key === 'RECOMMEND' ? '{{original_request_json}}, {{refinement_request_json}}, {{previous_titles_json}}' : '{{original_request_json}}, {{selected_topic_json}}, {{learning_goal_json}}'}</small></label>
+            <small>{key === 'RECOMMEND' ? '{{original_request_json}}, {{refinement_request_json}}, {{previous_titles_json}}' : '{{original_request_json}}, {{selected_topic_json}}, {{learning_goal_json}}, {{refinement_request_json}}(선택)'}</small></label>
         </>}
       </section>
     </div>
@@ -135,7 +135,7 @@ export function PromptAdminPage({ onBack }: { onBack: () => void }) {
       <div className="prompt-preview-inputs"><label>최초 요청<input value={previewInput.original_request} onChange={event => setPreviewInput({ ...previewInput, original_request: event.target.value })} /></label>
         {key === 'RECOMMEND' ? <><label>추가 조건<input value={previewInput.refinement_request} onChange={event => setPreviewInput({ ...previewInput, refinement_request: event.target.value })} /></label>
           <label>이전 제목<input value={previewInput.previous_titles.join(', ')} onChange={event => setPreviewInput({ ...previewInput, previous_titles: event.target.value.split(',').map(value => value.trim()).filter(Boolean) })} /></label></>
-          : <><label>선택 주제<input value={previewInput.selected_topic} onChange={event => setPreviewInput({ ...previewInput, selected_topic: event.target.value })} /></label>
+          : <><label>추가 조건<input value={previewInput.refinement_request} onChange={event => setPreviewInput({ ...previewInput, refinement_request: event.target.value })} /></label><label>선택 주제<input value={previewInput.selected_topic} onChange={event => setPreviewInput({ ...previewInput, selected_topic: event.target.value })} /></label>
             <label>학습 목표<input value={previewInput.learning_goal} onChange={event => setPreviewInput({ ...previewInput, learning_goal: event.target.value })} /></label></>}</div>
       {previewMessages && <div className="prompt-preview-result"><div className="prompt-preview-title"><strong>v{selected.version_number} · System / Developer / User</strong>
           <Button variant="outline" onClick={() => void copyMessages(previewMessages)}>미리보기 복사</Button></div>

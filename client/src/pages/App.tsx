@@ -13,6 +13,7 @@ type Screen = 'home' | 'suggestions' | 'generating' | 'study' | 'library' | 'edi
 type Draft = { title: string; cards: Flashcard[]; sourceMode: SourceMode; issues: { row: number; message: string }[]; reviewIndexes?: number[]; aiUsageSessionId?: string; aiUsageSessionToken?: string };
 type SaveDraft = { draft: Draft; id?: string; expectedUpdatedAt?: string };
 const SAMPLE_TOPICS = ['와인의 역사', '악보의 기본 구성 요소', '17세기 세계사', '초등학교 4학년 영어 단어'];
+const AI_CARD_COUNT_NOTICE = "현재 AI 학습 콘텐츠는 요청한 개수와 관계없이 10장으로 생성·저장됩니다. 20장·30장 생성은 아직 지원하지 않습니다.";
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home');
   const [session, setSession] = useState<Session | null>(null);
@@ -25,6 +26,7 @@ export default function App() {
   const [message, setMessage] = useState('');
   const [refinement, setRefinement] = useState('');
   const [originalRequest, setOriginalRequest] = useState('');
+  const [generationRefinement, setGenerationRefinement] = useState('');
   const [aiUsageSessionId, setAiUsageSessionId] = useState<string | null>(null);
   const [aiUsageSessionToken, setAiUsageSessionToken] = useState<string | null>(null);
   const [activeSet, setActiveSet] = useState<ContentSet | null>(null);
@@ -113,7 +115,7 @@ export default function App() {
       const data = await api.suggestions({ original_request: subject, refinement_request: refine, previous_suggestions: previous,
         ...(reuseSession ? { ai_usage_session_id: aiUsageSessionId, ai_usage_session_token: aiUsageSessionToken } : {}) });
       setAiUsageSessionId(data.ai_usage_session_id); setAiUsageSessionToken(data.ai_usage_session_token); setSuggestions(data.suggestions); setMessage(data.message);
-      setRefinement(''); setScreen('suggestions');
+      setGenerationRefinement(refine); setRefinement(''); setScreen('suggestions');
     } catch (reason) { setError(reason instanceof Error ? reason.message : '추천을 불러오지 못했습니다.'); }
     finally { setBusy(false); }
   }
@@ -126,7 +128,7 @@ export default function App() {
   async function createSet(suggestion: Suggestion) {
     setError(''); setScreen('generating');
     try {
-      const set = await api.create({ original_request: originalRequest, selected_topic: suggestion.title,
+      const set = await api.create({ original_request: originalRequest, refinement_request: generationRefinement, selected_topic: suggestion.title,
         learning_goal: suggestion.learning_goal, client_request_id: crypto.randomUUID(),
         ...(aiUsageSessionId && aiUsageSessionToken ? { ai_usage_session_id: aiUsageSessionId, ai_usage_session_token: aiUsageSessionToken } : {}) });
       const complete = set.cards ? set : await api.get(set.id);
@@ -219,6 +221,7 @@ export default function App() {
       <Button disabled={busy || !query.trim()} onClick={() => void recommend('', query.trim())} className="recommend-button">
         {busy ? <><span className="spinner" /> 준비하고 있어요</> : <>AI에게 학습 주제 추천받기 <span>→</span></>}
       </Button>
+      <p className="flow-copy">{AI_CARD_COUNT_NOTICE}</p>
       <div className="quick-create"><span>다른 자료로 만들기</span>
         <Button variant="outline" onClick={openNewImport}>사진 · TXT · Excel · 붙여넣기</Button>
       </div>
@@ -229,7 +232,7 @@ export default function App() {
 
     {screen === 'suggestions' && <main className="flow main-width">
       <button className="back-link" onClick={goHome}>← 처음으로</button><div className="step-label"><span>STEP 1</span> 학습 방향 선택</div>
-      <h1>{message || originalRequest + '에 대해 어떤 내용을 학습하고 싶으세요?'}</h1><p className="flow-copy">마음에 드는 주제를 선택하면 핵심 플래시카드 10장을 만들어요.</p>
+      <h1>{message || originalRequest + '에 대해 어떤 내용을 학습하고 싶으세요?'}</h1><p className="flow-copy">{AI_CARD_COUNT_NOTICE}</p>
       <div className="topic-grid">{suggestions.map((suggestion, index) => <button className="topic-card" key={suggestion.id} onClick={() => void createSet(suggestion)}>
         <span className={'topic-number tone-' + index}>0{index + 1}</span><span className="topic-arrow">↗</span><strong>{suggestion.title}</strong>
         <span className="topic-description">{suggestion.description}</span><span className="goal"><span>학습 목표</span>{suggestion.learning_goal}</span>

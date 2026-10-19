@@ -61,7 +61,7 @@ describe('new flashcard generation', () => {
     } });
     const result = await new OpenAiService('local-test-only', 'gpt-4o-mini', client).generate(input, 'local');
     expect(outbound.messages).toEqual(buildFlashcardPromptMessages(input));
-    expect(JSON.parse(outbound.messages[2].content)).toEqual({ original_request: topic, selected_topic: topic,
+    expect(JSON.parse(outbound.messages[2].content)).toEqual({ original_request: topic, refinement_request: '', selected_topic: topic,
       learning_goal: input.learning_goal, card_count: 10, language: 'ko' });
     expect(outbound.response_format.json_schema.name).toBe('learning_flashcards');
     expect(outbound.max_completion_tokens).toBe(5600);
