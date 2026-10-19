@@ -19,6 +19,12 @@ test('home examples show concrete topics and pass the complete selected scope to
     await page.getByRole('button', { name: '← 처음으로' }).click();
   }
 
+  await input.fill('이동 전 입력값');
+  await page.getByRole('button', { name: '학습 콘텐츠 목록' }).click();
+  await expect(page.getByRole('heading', { name: '학습 콘텐츠 목록' })).toBeVisible();
+  await page.getByRole('button', { name: '만들기', exact: true }).click();
+  await expect(input).toHaveValue('');
+
   await page.setViewportSize({ width: 320, height: 700 });
   const buttonBounds = await sampleButtons.evaluateAll(elements => elements.map(element => {
     const rect = element.getBoundingClientRect();

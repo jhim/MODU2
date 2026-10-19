@@ -139,13 +139,13 @@ export default function App() {
     const last = (activeSet?.cards?.length ?? 0) - 1;
     setCardIndex(index => Math.max(0, Math.min(last, index + delta))); setFlipped(false);
   }
-  function goHome() { setScreen('home'); setActiveSet(null); setError(''); setShowResults(false); setAiUsageSessionId(null); setAiUsageSessionToken(null); }
+  function goHome() { setQuery(''); setScreen('home'); setActiveSet(null); setError(''); setShowResults(false); setAiUsageSessionId(null); setAiUsageSessionToken(null); }
   function openLibrary(scope: 'all' | 'mine' = 'all') {
-    setError('');
+    setQuery(''); setShowResults(false); setError('');
     if (scope === 'mine' && !session) { setScreen('auth'); setAuthMode('login'); setListScope('mine'); return; }
     setListScope(scope); setListPage(1); setScreen('library');
   }
-  function openNewImport() { setDraft(null); setEditing(null); setScreen('import'); }
+  function openNewImport() { setQuery(''); setShowResults(false); setDraft(null); setEditing(null); setScreen('import'); }
   function startEdit(set: ContentSet) { setEditing(set); setDraft({ title: set.title, cards: set.cards ?? [], sourceMode: set.source_mode ?? 'AI', issues: [] }); setScreen('editor'); }
   async function saveEditor(input: { title: string; cards: Flashcard[]; sourceMode: SourceMode; expectedUpdatedAt?: string }) {
     const next: Draft = { ...input, issues: draft?.issues ?? [], reviewIndexes: draft?.reviewIndexes };
