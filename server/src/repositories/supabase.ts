@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { ContentSource, LearningRepository, LearningSet, ContentListResult } from './types.js';
 import type { Flashcard } from '../../../shared/schemas/index.js';
 import type { AiUsageRecord } from '../services/ai-pricing.js';
+import type { AiPromptUsage } from '../services/ai.js';
 import type { ActivePrompt, PromptKey, PromptTemplate } from '../prompts/templates.js';
 import type { PromptAuditRecord, PromptRepository, PromptTemplateRecord, PromptVersion } from '../prompts/repository.js';
 
@@ -83,7 +84,7 @@ export class SupabaseLearningRepository implements LearningRepository, PromptRep
     }
     return set;
   }
-  async recordAiUsage(input: { sessionId: string; requestId: string; operation: 'suggestions' | 'flashcard_generation' | 'image_extraction'; usage: AiUsageRecord; ownerId?: string }): Promise<void> {
+  async recordAiUsage(input: { sessionId: string; requestId: string; operation: 'suggestions' | 'flashcard_generation' | 'image_extraction'; usage: AiUsageRecord; promptUsage?: AiPromptUsage; ownerId?: string }): Promise<void> {
     const usage = input.usage;
     const { error } = await this.db.rpc('record_ai_usage_event', {
       p_session_id: input.sessionId, p_request_id: input.requestId, p_operation: input.operation,
@@ -96,6 +97,10 @@ export class SupabaseLearningRepository implements LearningRepository, PromptRep
       p_estimated_krw: usage.estimatedKrw, p_pricing_as_of: usage.pricingAsOf,
       p_fx_rate_as_of: usage.fxRateAsOf, p_fx_rate_source: usage.fxRateSource,
       p_owner_id: input.ownerId ?? null,
+      p_prompt_key: input.promptUsage?.promptKey ?? null,
+      p_prompt_version_id: input.promptUsage?.versionId ?? null,
+      p_prompt_version_number: input.promptUsage?.versionNumber ?? null,
+      p_prompt_source: input.promptUsage?.source ?? 'unknown',
     });
     if (error) throw error;
   }

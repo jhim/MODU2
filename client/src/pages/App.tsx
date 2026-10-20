@@ -279,6 +279,14 @@ export default function App() {
                   <span>예상 비용 ${item.ai_usage.estimated_usd?.toLocaleString('en-US', { maximumFractionDigits: 8 }) ?? '미등록'} · 약 {item.ai_usage.estimated_krw?.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) ?? '미등록'}원</span>
                   <span>모델 단가: {(item.ai_usage.model_rates ?? []).map(rate => `${rate.model}: 입력 $${rate.input_usd_per_million ?? '미등록'} · 캐시 $${rate.cached_input_usd_per_million ?? '미등록'} · 출력 $${rate.output_usd_per_million ?? '미등록'} / 1M tokens (${rate.pricing_as_of})`).join('; ') || '—'}</span>
                   <span>환율: {(item.ai_usage.fx_rates ?? []).map(rate => `1 USD = ${rate.usd_krw_rate} KRW (${rate.as_of}, ${rate.source})`).join('; ') || '—'}</span>
+                  {(item.ai_usage.by_operation ?? []).map((usage, index) => <span className="ai-cost-operation" key={`${usage.operation}-${usage.prompt_version_id ?? 'legacy'}-${index}`}>
+                    <strong>{usage.operation === 'suggestions' ? '학습 주제 추천' : usage.operation === 'flashcard_generation' ? '플래시카드 생성' : '사진 인식'} 비용</strong>
+                    <span>입력 {usage.input_tokens?.toLocaleString() ?? '—'} · 출력 {usage.output_tokens?.toLocaleString() ?? '—'} · 총 {usage.total_tokens?.toLocaleString() ?? '—'} tokens</span>
+                    <span>예상 비용 ${usage.estimated_usd?.toLocaleString('en-US', { maximumFractionDigits: 8 }) ?? '미등록'} · 약 {usage.estimated_krw?.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) ?? '미등록'}원</span>
+                    <span>사용 프롬프트: {usage.prompt_key === 'RECOMMEND' ? '추천' : usage.prompt_key === 'FLASHCARD' ? '플래시카드' : usage.prompt_key === 'IMAGE_EXTRACTION' ? '사진 인식' : '기록 없음'}{usage.prompt_version_number ? ` v${usage.prompt_version_number}` : ''}{usage.prompt_source === 'fallback' ? ' · 코드 기본 프롬프트(대체)' : usage.prompt_source === 'code' ? ' · 코드 프롬프트' : usage.prompt_source === 'unknown' ? ' · 버전 기록 없음' : ''}</span>
+                    <span>모델 단가: {(usage.model_rates ?? []).map(rate => `${rate.model}: 입력 $${rate.input_usd_per_million ?? '미등록'} · 캐시 $${rate.cached_input_usd_per_million ?? '미등록'} · 출력 $${rate.output_usd_per_million ?? '미등록'} / 1M tokens (${rate.pricing_as_of})`).join('; ') || '—'}</span>
+                    <span>환율: {(usage.fx_rates ?? []).map(rate => `1 USD = ${rate.usd_krw_rate} KRW (${rate.as_of}, ${rate.source})`).join('; ') || '—'}</span>
+                  </span>)}
                   <span>실제 청구액이 아닌 추정 API 비용</span>
                 </span>}
               </span></>}

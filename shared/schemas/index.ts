@@ -76,6 +76,23 @@ export type AiUsageSummary = {
   fx_rate_source: string[] | null;
   model_rates: { model: string; input_usd_per_million: number | null; cached_input_usd_per_million: number | null; output_usd_per_million: number | null; pricing_as_of: string }[] | null;
   fx_rates: { usd_krw_rate: number; as_of: string; source: string }[] | null;
+  by_operation?: AiUsageOperationSummary[] | null;
+};
+export type AiUsageOperationSummary = {
+  operation: 'suggestions' | 'flashcard_generation' | 'image_extraction' | string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  cached_input_tokens: number | null;
+  estimated_usd: number | null;
+  estimated_krw: number | null;
+  prompt_key: 'RECOMMEND' | 'FLASHCARD' | 'IMAGE_EXTRACTION' | null;
+  prompt_version_id: string | null;
+  prompt_version_number: number | null;
+  prompt_source: 'active' | 'fallback' | 'code' | 'unknown';
+  models: string[] | null;
+  model_rates: AiUsageSummary['model_rates'];
+  fx_rates: AiUsageSummary['fx_rates'];
 };
 export type Flashcard = z.infer<typeof FlashcardSchema>;
 export type GeneratedSet = z.infer<typeof GeneratedSetSchema>;

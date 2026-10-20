@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import type { AiUsageSummary, Flashcard } from '../../../shared/schemas/index.js';
 import type { ContentSource, LearningRepository, LearningSet, ContentListResult } from './types.js';
 import type { AiUsageRecord } from '../services/ai-pricing.js';
+import type { AiPromptUsage } from '../services/ai.js';
 
-type StoredAiUsage = AiUsageRecord & { request_id: string; operation: 'suggestions' | 'flashcard_generation' | 'image_extraction' };
+type StoredAiUsage = AiUsageRecord & { request_id: string; operation: 'suggestions' | 'flashcard_generation' | 'image_extraction'; promptUsage?: AiPromptUsage };
 
-function summarizeAiUsage(events: StoredAiUsage[]): AiUsageSummary | undefined {
-  if (!events.length) return undefined;
+function summarizeEvents(events: StoredAiUsage[]) {
   const allPriced = events.every(event => event.estimatedUsd !== null && event.estimatedKrw !== null);
   return {
     input_tokens: events.reduce((sum, event) => sum + event.inputTokens, 0),
@@ -16,10 +16,6 @@ function summarizeAiUsage(events: StoredAiUsage[]): AiUsageSummary | undefined {
     estimated_usd: allPriced ? events.reduce((sum, event) => sum + (event.estimatedUsd ?? 0), 0) : null,
     estimated_krw: allPriced ? events.reduce((sum, event) => sum + (event.estimatedKrw ?? 0), 0) : null,
     models: [...new Set(events.map(event => event.model))],
-    operations: [...new Set(events.map(event => event.operation))],
-    pricing_as_of: [...new Set(events.map(event => event.pricingAsOf))],
-    fx_rate_as_of: [...new Set(events.map(event => event.fxRateAsOf))],
-    fx_rate_source: [...new Set(events.map(event => event.fxRateSource))],
     model_rates: [...new Map(events.map(event => [event.model + ':' + event.pricingAsOf, {
       model: event.model, input_usd_per_million: event.inputUsdPerMillion,
       cached_input_usd_per_million: event.cachedInputUsdPerMillion, output_usd_per_million: event.outputUsdPerMillion,
@@ -28,6 +24,28 @@ function summarizeAiUsage(events: StoredAiUsage[]): AiUsageSummary | undefined {
     fx_rates: [...new Map(events.map(event => [event.usdKrwRate + ':' + event.fxRateAsOf, {
       usd_krw_rate: event.usdKrwRate, as_of: event.fxRateAsOf, source: event.fxRateSource,
     }])).values()],
+  };
+}
+
+function summarizeAiUsage(events: StoredAiUsage[]): AiUsageSummary | undefined {
+  if (!events.length) return undefined;
+  const summary = summarizeEvents(events);
+  return {
+    ...summary,
+    models: [...new Set(events.map(event => event.model))],
+    operations: [...new Set(events.map(event => event.operation))],
+    pricing_as_of: [...new Set(events.map(event => event.pricingAsOf))],
+    fx_rate_as_of: [...new Set(events.map(event => event.fxRateAsOf))],
+    fx_rate_source: [...new Set(events.map(event => event.fxRateSource))],
+    by_operation: [...new Set(events.map(event => [event.operation, event.promptUsage?.promptKey ?? '', event.promptUsage?.versionId ?? '',
+      event.promptUsage?.versionNumber ?? '', event.promptUsage?.source ?? 'unknown'].join('|')))].map(key => {
+        const [operation, promptKey, versionId, versionNumber, source] = key.split('|');
+        const group = events.filter(event => event.operation === operation && (event.promptUsage?.promptKey ?? '') === promptKey &&
+          (event.promptUsage?.versionId ?? '') === versionId && String(event.promptUsage?.versionNumber ?? '') === versionNumber &&
+          (event.promptUsage?.source ?? 'unknown') === source);
+        return { operation, ...summarizeEvents(group), prompt_key: (promptKey || null) as NonNullable<AiUsageSummary['by_operation']>[number]['prompt_key'], prompt_version_id: versionId || null,
+          prompt_version_number: versionNumber ? Number(versionNumber) : null, prompt_source: source as NonNullable<AiUsageSummary['by_operation']>[number]['prompt_source'] };
+      }),
   };
 }
 
@@ -90,10 +108,10 @@ export class MemoryLearningRepository implements LearningRepository {
       ai_usage_session_id: input.aiUsageSessionId ?? null };
     this.sets.set(set.id, set); return set;
   }
-  async recordAiUsage(input: { sessionId: string; requestId: string; operation: 'suggestions' | 'flashcard_generation' | 'image_extraction'; usage: AiUsageRecord; ownerId?: string }): Promise<void> {
+  async recordAiUsage(input: { sessionId: string; requestId: string; operation: 'suggestions' | 'flashcard_generation' | 'image_extraction'; usage: AiUsageRecord; promptUsage?: AiPromptUsage; ownerId?: string }): Promise<void> {
     this.claimUsageSession(input.sessionId, input.ownerId);
     const events = this.aiUsage.get(input.sessionId) ?? [];
-    events.push({ ...input.usage, request_id: input.requestId, operation: input.operation });
+    events.push({ ...input.usage, request_id: input.requestId, operation: input.operation, promptUsage: input.promptUsage });
     this.aiUsage.set(input.sessionId, events);
   }
   async claimAiUsageSession(sessionId: string, ownerId: string): Promise<void> { this.claimUsageSession(sessionId, ownerId); }

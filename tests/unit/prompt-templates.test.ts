@@ -64,6 +64,7 @@ describe('managed prompt templates', () => {
     expect(outbound.messages[0].content).toBe('active database system');
     expect(outbound.messages[1].content).toBe('active database developer');
     expect(result.data.suggestions).toHaveLength(2);
+    expect(result.promptUsage).toMatchObject({ promptKey: 'RECOMMEND', versionId: draft.id, versionNumber: draft.version_number, source: 'active' });
   });
 
   it('falls back to code prompts when active prompt storage is unavailable', async () => {
@@ -84,5 +85,6 @@ describe('managed prompt templates', () => {
     expect(result).not.toHaveProperty('requestPrompt');
     expect(outbound.messages.map((message: { role: string }) => message.role)).toEqual(['system', 'developer', 'user']);
     expect(outbound.messages[0].content).toBe(DEFAULT_PROMPT_TEMPLATES.RECOMMEND.system_prompt);
+    expect(result.promptUsage).toMatchObject({ promptKey: 'RECOMMEND', source: 'fallback' });
   });
 });

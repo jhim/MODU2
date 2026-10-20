@@ -1,5 +1,6 @@
 import type { AiUsageSummary, Flashcard } from '../../../shared/schemas/index.js';
 import type { AiUsageRecord } from '../services/ai-pricing.js';
+import type { AiPromptUsage } from '../services/ai.js';
 
 export type SetStatus = 'GENERATING' | 'COMPLETED' | 'FAILED';
 export type ContentSource = 'AI' | 'PHOTO' | 'TEXT' | 'EXCEL';
@@ -24,7 +25,7 @@ export interface LearningRepository {
   getCompleted(id: string): Promise<LearningSet | null>;
   listContent(input: { query: string; sort: 'newest' | 'name'; page: number; pageSize: number; ownerId?: string; scope: 'all' | 'mine' }): Promise<ContentListResult>;
   createOwned(input: { ownerId: string; title: string; cards: Flashcard[]; sourceMode: ContentSource; aiUsageSessionId?: string }): Promise<LearningSet>;
-  recordAiUsage(input: { sessionId: string; requestId: string; operation: 'suggestions' | 'flashcard_generation' | 'image_extraction'; usage: AiUsageRecord; ownerId?: string }): Promise<void>;
+  recordAiUsage(input: { sessionId: string; requestId: string; operation: 'suggestions' | 'flashcard_generation' | 'image_extraction'; usage: AiUsageRecord; promptUsage?: AiPromptUsage; ownerId?: string }): Promise<void>;
   claimAiUsageSession(sessionId: string, ownerId: string): Promise<void>;
   getOwned(id: string, ownerId: string): Promise<LearningSet | null>;
   updateOwned(input: { id: string; ownerId: string; expectedUpdatedAt: string; title: string; cards: Flashcard[]; sourceMode?: ContentSource }): Promise<LearningSet>;

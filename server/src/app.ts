@@ -245,11 +245,11 @@ export function createApp(deps: Deps) {
       sessionId = usageSession.id;
       if (usageOwnerId) await deps.repository.claimAiUsageSession(sessionId, usageOwnerId);
       const result = await deps.ai.suggest(suggestionInput, res.locals.requestId);
-      if (result.usage) await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'suggestions', usage: result.usage, ownerId: usageOwnerId });
+      if (result.usage) await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'suggestions', usage: result.usage, promptUsage: result.promptUsage, ownerId: usageOwnerId });
       return res.json({ ...result.data, ai_usage_session_id: sessionId, ai_usage_session_token: usageSession.token });
     } catch (error) {
       if (error instanceof AiProviderError && error.usage && sessionId) {
-        try { await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'suggestions', usage: error.usage, ownerId: usageOwnerId }); }
+        try { await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'suggestions', usage: error.usage, promptUsage: error.promptUsage, ownerId: usageOwnerId }); }
         catch { logMetric('ai_usage_persist_error', { request_id: res.locals.requestId, operation: 'suggestions' }); }
       }
       return next(error);
@@ -283,7 +283,7 @@ export function createApp(deps: Deps) {
         const sessionId = usageSession.id;
         const generated = await deps.ai.generate(input, res.locals.requestId);
         if (generated.usage) await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId,
-            operation: 'flashcard_generation', usage: generated.usage, ownerId: user?.id });
+            operation: 'flashcard_generation', usage: generated.usage, promptUsage: generated.promptUsage, ownerId: user?.id });
         return res.status(200).json({ id: randomUUID(), title: generated.data.title, original_request: input.original_request,
           selected_topic: input.selected_topic, learning_goal: input.learning_goal, status: 'COMPLETED',
           created_at: new Date().toISOString(), source_mode: 'AI', cards: generated.data.cards, saved: false,
@@ -309,13 +309,14 @@ export function createApp(deps: Deps) {
           try {
             generated = await deps.ai.generate(input, res.locals.requestId);
             if (generated.usage) await deps.repository.recordAiUsage({ sessionId: aiUsageSessionId,
-              requestId: res.locals.requestId, operation: 'flashcard_generation', usage: generated.usage, ownerId: user?.id });
+              requestId: res.locals.requestId, operation: 'flashcard_generation', usage: generated.usage, promptUsage: generated.promptUsage, ownerId: user?.id });
             break;
           } catch (error) {
             const rejectedUsage = (error as Error & { aiUsage?: AiUsageRecord | null }).aiUsage
               ?? (error instanceof AiProviderError ? error.usage : null);
             if (rejectedUsage) await deps.repository.recordAiUsage({ sessionId: aiUsageSessionId,
-              requestId: res.locals.requestId, operation: 'flashcard_generation', usage: rejectedUsage, ownerId: user?.id });
+              requestId: res.locals.requestId, operation: 'flashcard_generation', usage: rejectedUsage,
+              promptUsage: (error as Error & { promptUsage?: import('./services/ai.js').AiPromptUsage }).promptUsage ?? (error instanceof AiProviderError ? error.promptUsage : undefined), ownerId: user?.id });
             if (error instanceof ZodError && attempt === 0) { logMetric('generation_retry', { request_id: res.locals.requestId, attempt: attempt + 1 }); continue; }
             throw error;
           }
@@ -395,13 +396,13 @@ export function createApp(deps: Deps) {
       inspectImage(req.body, mime);
       const extracted = await deps.ai.extractImage(req.body, mime, res.locals.requestId);
       if (extracted.usage) await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId,
-        operation: 'image_extraction', usage: extracted.usage, ownerId: usageOwnerId });
+        operation: 'image_extraction', usage: extracted.usage, promptUsage: extracted.promptUsage, ownerId: usageOwnerId });
       return res.json({ cards: extracted.data.cards.map(({ key, values }) => ({ key, values })),
         review_card_indexes: extracted.data.cards.flatMap((card, index) => card.needs_review ? [index] : []),
         ai_usage_session_id: sessionId, ai_usage_session_token: usageSession.token });
     } catch (error) {
       if (error instanceof AiProviderError && error.usage) {
-        try { await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'image_extraction', usage: error.usage, ownerId: usageOwnerId }); }
+        try { await deps.repository.recordAiUsage({ sessionId, requestId: res.locals.requestId, operation: 'image_extraction', usage: error.usage, promptUsage: error.promptUsage, ownerId: usageOwnerId }); }
         catch { logMetric('ai_usage_persist_error', { request_id: res.locals.requestId, operation: 'image_extraction' }); }
       }
       return next(error);

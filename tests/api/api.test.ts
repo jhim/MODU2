@@ -143,8 +143,10 @@ describe('MODU2 API', () => {
     const suggestionUsage = calculateAiUsage({ model: 'gpt-4o-mini', inputTokens: 100, outputTokens: 20, totalTokens: 120 });
     const generationUsage = calculateAiUsage({ model: 'gpt-4o-mini', inputTokens: 200, outputTokens: 80, totalTokens: 280 });
     const meteredAi = {
-      suggest: async (input: Parameters<typeof mock.suggest>[0], id: string) => ({ ...(await mock.suggest(input, id)), usage: suggestionUsage }),
-      generate: async (input: Parameters<typeof mock.generate>[0], id: string) => ({ ...(await mock.generate(input, id)), usage: generationUsage }),
+      suggest: async (input: Parameters<typeof mock.suggest>[0], id: string) => ({ ...(await mock.suggest(input, id)), usage: suggestionUsage,
+        promptUsage: { promptKey: 'RECOMMEND' as const, versionId: crypto.randomUUID(), versionNumber: 7, source: 'active' as const } }),
+      generate: async (input: Parameters<typeof mock.generate>[0], id: string) => ({ ...(await mock.generate(input, id)), usage: generationUsage,
+        promptUsage: { promptKey: 'FLASHCARD' as const, versionId: crypto.randomUUID(), versionNumber: 12, source: 'active' as const } }),
       extractImage: mock.extractImage.bind(mock),
     };
     const meteredApp = createApp({ ai: meteredAi, repository: repo });
@@ -167,6 +169,12 @@ describe('MODU2 API', () => {
       expect(list.results[0].ai_usage).toMatchObject({ input_tokens: 300, output_tokens: 100, total_tokens: 400,
         models: ['gpt-4o-mini'], operations: ['suggestions', 'flashcard_generation'] });
       expect(list.results[0].ai_usage.estimated_krw).toBeCloseTo(suggestionUsage.estimatedKrw! + generationUsage.estimatedKrw!, 8);
+      expect(list.results[0].ai_usage.by_operation).toEqual(expect.arrayContaining([
+        expect.objectContaining({ operation: 'suggestions', input_tokens: 100, total_tokens: 120, prompt_key: 'RECOMMEND', prompt_version_number: 7, prompt_source: 'active' }),
+        expect.objectContaining({ operation: 'flashcard_generation', input_tokens: 200, total_tokens: 280, prompt_key: 'FLASHCARD', prompt_version_number: 12, prompt_source: 'active' }),
+      ]));
+      const byOperation = list.results[0].ai_usage.by_operation as { estimated_krw: number }[];
+      expect(byOperation.reduce((sum, operation) => sum + operation.estimated_krw, 0)).toBeCloseTo(list.results[0].ai_usage.estimated_krw, 8);
     } finally { await new Promise<void>(resolve => meteredServer.close(() => resolve())); }
   });
   it('rejects a forged usage session token and replaces an unsigned legacy UUID', async () => {

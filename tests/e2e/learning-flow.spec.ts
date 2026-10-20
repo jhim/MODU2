@@ -119,7 +119,19 @@ test('shows recorded AI usage and leaves older content without usage blank', asy
           pricing_as_of: ['2026-10-15'], fx_rate_as_of: ['2026-10-13'], fx_rate_source: ['Federal Reserve H.10 / FRED DEXKOUS'],
           model_rates: [{ model: 'gpt-4o-mini', input_usd_per_million: 0.15, cached_input_usd_per_million: 0.075,
             output_usd_per_million: 0.6, pricing_as_of: '2026-10-15' }],
-          fx_rates: [{ usd_krw_rate: 1342.13, as_of: '2026-10-13', source: 'Federal Reserve H.10 / FRED DEXKOUS' }] } },
+          fx_rates: [{ usd_krw_rate: 1342.13, as_of: '2026-10-13', source: 'Federal Reserve H.10 / FRED DEXKOUS' }],
+          by_operation: [
+            { operation: 'suggestions', input_tokens: 400, output_tokens: 100, total_tokens: 500, cached_input_tokens: 0,
+              estimated_usd: 0.00012, estimated_krw: 0.16, prompt_key: 'RECOMMEND', prompt_version_id: 'recommend-v2', prompt_version_number: 2,
+              prompt_source: 'active', models: ['gpt-4o-mini'], model_rates: [{ model: 'gpt-4o-mini', input_usd_per_million: 0.15,
+                cached_input_usd_per_million: 0.075, output_usd_per_million: 0.6, pricing_as_of: '2026-10-15' }],
+              fx_rates: [{ usd_krw_rate: 1342.13, as_of: '2026-10-13', source: 'Federal Reserve H.10 / FRED DEXKOUS' }] },
+            { operation: 'flashcard_generation', input_tokens: 600, output_tokens: 150, total_tokens: 750, cached_input_tokens: 0,
+              estimated_usd: 0.00138, estimated_krw: 1.85, prompt_key: 'FLASHCARD', prompt_version_id: 'flash-v4', prompt_version_number: 4,
+              prompt_source: 'active', models: ['gpt-4o-mini'], model_rates: [{ model: 'gpt-4o-mini', input_usd_per_million: 0.15,
+                cached_input_usd_per_million: 0.075, output_usd_per_million: 0.6, pricing_as_of: '2026-10-15' }],
+              fx_rates: [{ usd_krw_rate: 1342.13, as_of: '2026-10-13', source: 'Federal Reserve H.10 / FRED DEXKOUS' }] },
+          ] } },
       { id: crypto.randomUUID(), title: '기존 사용량 미기록 콘텐츠', original_request: '테스트', status: 'COMPLETED',
         created_at: timestamp, updated_at: timestamp, source_mode: 'AI', card_count: 10, preview: [], can_edit: false },
       { id: crypto.randomUUID(), title: 'null 사용량 콘텐츠', original_request: '  ', status: 'COMPLETED',
@@ -144,6 +156,10 @@ test('shows recorded AI usage and leaves older content without usage blank', asy
     await expect(usageInfo).toContainText('예상 비용 $0.0015 · 약 2.01원');
     await expect(usageInfo).toContainText('gpt-4o-mini');
     await expect(usageInfo).toContainText('1342.13');
+    await expect(usageInfo).toContainText('학습 주제 추천 비용');
+    await expect(usageInfo).toContainText('사용 프롬프트: 추천 v2');
+    await expect(usageInfo).toContainText('플래시카드 생성 비용');
+    await expect(usageInfo).toContainText('사용 프롬프트: 플래시카드 v4');
     await expect(usageInfo).toContainText('실제 청구액이 아닌 추정 API 비용');
     const infoBox = await usageInfo.boundingBox();
     expect(infoBox).not.toBeNull();

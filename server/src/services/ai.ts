@@ -9,7 +9,13 @@ import { calculateAiUsage, type AiUsageRecord } from './ai-pricing.js';
 import { buildRuntimePromptMessages, loadRuntimePrompt } from '../prompts/runtime.js';
 import type { PromptRepository } from '../prompts/repository.js';
 
-export type AiCallResult<T> = { data: T; usage: AiUsageRecord | null };
+export type AiCallResult<T> = { data: T; usage: AiUsageRecord | null; promptUsage?: AiPromptUsage };
+export type AiPromptUsage = {
+  promptKey: 'RECOMMEND' | 'FLASHCARD' | 'IMAGE_EXTRACTION';
+  versionId?: string;
+  versionNumber?: number;
+  source: 'active' | 'fallback' | 'code';
+};
 
 export interface AiService {
   suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, requestId: string): Promise<AiCallResult<SuggestionsResponse>>;
@@ -142,7 +148,8 @@ export class MockAiService implements AiService {
 
 export type AiOperation = 'suggestions' | 'flashcard_generation' | 'image_extraction';
 export class AiProviderError extends Error {
-  constructor(readonly operation: AiOperation, readonly upstreamStatus?: number, readonly usage?: AiUsageRecord | null) {
+  constructor(readonly operation: AiOperation, readonly upstreamStatus?: number, readonly usage?: AiUsageRecord | null,
+    readonly promptUsage?: AiPromptUsage) {
     super('AI provider request failed.'); this.name = 'AiProviderError';
   }
 }
@@ -151,7 +158,7 @@ export class OpenAiService implements AiService {
   constructor(apiKey: string, private readonly model: string, client?: OpenAI, private readonly promptRepository?: PromptRepository) {
     this.client = client ?? new OpenAI({ apiKey, timeout: 30_000, maxRetries: 1 });
   }
-  private async request<T>(operation: AiOperation, id: string, call: () => Promise<T>): Promise<T> {
+  private async request<T>(operation: AiOperation, id: string, call: () => Promise<T>, promptUsage?: AiPromptUsage): Promise<T> {
     try { return await call(); }
     catch (error) {
       const apiError = error instanceof APIError ? error : undefined;
@@ -159,12 +166,14 @@ export class OpenAiService implements AiService {
         error_type: error instanceof Error ? error.name : 'unknown', upstream_status: apiError?.status,
         openai_error_code: apiError?.code ?? undefined, openai_error_type: apiError?.type,
         openai_request_id: apiError?.requestID ?? undefined });
-      throw new AiProviderError(operation, apiError?.status);
+      throw new AiProviderError(operation, apiError?.status, null, promptUsage);
     }
   }
   async suggest(input: { original_request: string; refinement_request: string; previous_suggestions: unknown[] }, id: string): Promise<AiCallResult<SuggestionsResponse>> {
     const started = performance.now();
     const promptSnapshot = await loadRuntimePrompt(this.promptRepository, 'RECOMMEND', id);
+    const promptUsage: AiPromptUsage = { promptKey: 'RECOMMEND', ...(promptSnapshot.versionId ? { versionId: promptSnapshot.versionId } : {}),
+      ...(promptSnapshot.versionNumber ? { versionNumber: promptSnapshot.versionNumber } : {}), source: promptSnapshot.fallback ? 'fallback' : 'active' };
     const requestPrompt = buildRuntimePromptMessages('RECOMMEND', promptSnapshot.prompt, input);
     logMetric('ai_prompt_selected', { request_id: id, prompt_key: 'RECOMMEND', version_id: promptSnapshot.versionId,
       version_number: promptSnapshot.versionNumber, fallback: promptSnapshot.fallback });
@@ -173,7 +182,7 @@ export class OpenAiService implements AiService {
       messages: requestPrompt,
       response_format: responseFormat(SuggestionsResponseSchema, 'learning_suggestions'),
       max_completion_tokens: 1400,
-    }));
+    }), promptUsage);
     const content = response.choices[0]?.message.parsed;
     const usage = response.usage ? calculateAiUsage({ model: response.model,
       inputTokens: response.usage.prompt_tokens, outputTokens: response.usage.completion_tokens,
@@ -183,18 +192,20 @@ export class OpenAiService implements AiService {
       logMetric('ai_response_invalid', { request_id: id, operation: 'suggestions', model: this.model,
         openai_request_id: response._request_id ?? undefined, finish_reason: response.choices[0]?.finish_reason ?? 'missing',
         refused: Boolean(response.choices[0]?.message.refusal) });
-      throw new AiProviderError('suggestions', undefined, usage);
+      throw new AiProviderError('suggestions', undefined, usage, promptUsage);
     }
-    try { return { data: SuggestionsResponseSchema.parse(content), usage }; }
+    try { return { data: SuggestionsResponseSchema.parse(content), usage, promptUsage }; }
     catch (error) {
       logMetric('ai_response_invalid', { request_id: id, operation: 'suggestions', model: this.model,
         openai_request_id: response._request_id ?? undefined, error_type: error instanceof Error ? error.name : 'unknown' });
-      throw new AiProviderError('suggestions', undefined, usage);
+      throw new AiProviderError('suggestions', undefined, usage, promptUsage);
     }
   }
   async generate(input: CreateSetRequest, id: string) {
     const started = performance.now();
     const promptSnapshot = await loadRuntimePrompt(this.promptRepository, 'FLASHCARD', id);
+    const promptUsage: AiPromptUsage = { promptKey: 'FLASHCARD', ...(promptSnapshot.versionId ? { versionId: promptSnapshot.versionId } : {}),
+      ...(promptSnapshot.versionNumber ? { versionNumber: promptSnapshot.versionNumber } : {}), source: promptSnapshot.fallback ? 'fallback' : 'active' };
     const requestPrompt = buildRuntimePromptMessages('FLASHCARD', promptSnapshot.prompt, input);
     logMetric('ai_prompt_selected', { request_id: id, prompt_key: 'FLASHCARD', version_id: promptSnapshot.versionId,
       version_number: promptSnapshot.versionNumber, fallback: promptSnapshot.fallback });
@@ -202,7 +213,7 @@ export class OpenAiService implements AiService {
       model: this.model, messages: requestPrompt,
       response_format: responseFormat(GeneratedSetSchema, 'learning_flashcards'),
       max_completion_tokens: 5600,
-    }));
+    }), promptUsage);
     logMetric('ai_call', { request_id: id, kind: 'flashcard_generation', duration_ms: Math.round(performance.now() - started), model: this.model });
     const content = response.choices[0]?.message.parsed;
     const usage = response.usage ? calculateAiUsage({ model: response.model,
@@ -212,11 +223,11 @@ export class OpenAiService implements AiService {
       logMetric('ai_response_invalid', { request_id: id, operation: 'flashcard_generation', model: this.model,
         openai_request_id: response._request_id ?? undefined, finish_reason: response.choices[0]?.finish_reason ?? 'missing',
         refused: Boolean(response.choices[0]?.message.refusal) });
-      throw new AiProviderError('flashcard_generation', undefined, usage);
+      throw new AiProviderError('flashcard_generation', undefined, usage, promptUsage);
     }
-    try { return { data: GeneratedSetSchema.parse(content), usage }; }
+    try { return { data: GeneratedSetSchema.parse(content), usage, promptUsage }; }
     catch (error) {
-      if (error instanceof z.ZodError) Object.assign(error, { aiUsage: usage });
+      if (error instanceof z.ZodError) Object.assign(error, { aiUsage: usage, promptUsage });
       logMetric('ai_response_invalid', { request_id: id, operation: 'flashcard_generation', model: this.model,
         openai_request_id: response._request_id ?? undefined, error_type: error instanceof Error ? error.name : 'unknown' });
       throw error;
@@ -225,6 +236,7 @@ export class OpenAiService implements AiService {
   async extractImage(bytes: Buffer, mimeType: 'image/jpeg' | 'image/png' | 'image/webp', id: string) {
     const started = performance.now();
     const dataUrl = 'data:' + mimeType + ';base64,' + bytes.toString('base64');
+    const promptUsage: AiPromptUsage = { promptKey: 'IMAGE_EXTRACTION', source: 'code' };
     const response = await this.request('image_extraction', id, () => this.client.chat.completions.parse({
       model: this.model,
       messages: [
@@ -237,7 +249,7 @@ export class OpenAiService implements AiService {
       ],
       response_format: responseFormat(ImageCardsSchema, 'photo_flashcards'),
       max_completion_tokens: 3200,
-    }));
+    }), promptUsage);
     const content = response.choices[0]?.message.parsed;
     const usage = response.usage ? calculateAiUsage({ model: response.model,
       inputTokens: response.usage.prompt_tokens, outputTokens: response.usage.completion_tokens,
@@ -247,7 +259,7 @@ export class OpenAiService implements AiService {
       logMetric('ai_response_invalid', { request_id: id, operation: 'image_extraction', model: this.model,
         openai_request_id: response._request_id ?? undefined, finish_reason: response.choices[0]?.finish_reason ?? 'missing',
         refused: Boolean(response.choices[0]?.message.refusal) });
-      throw new AiProviderError('image_extraction', undefined, usage);
+      throw new AiProviderError('image_extraction', undefined, usage, promptUsage);
     }
     const cards = content.cards.map((card: z.infer<typeof ImageCardsSchema>['cards'][number]) => ({ ...card, key: card.key.trim(), values: card.values.map((value: string) => value.trim()) }));
     const invalid = cards.some((card: z.infer<typeof ImageCardsSchema>['cards'][number]) => !card.key || card.key.length > 120 || card.values.length < 1 ||
@@ -255,8 +267,8 @@ export class OpenAiService implements AiService {
     if (invalid) {
       logMetric('ai_response_invalid', { request_id: id, operation: 'image_extraction', model: this.model,
         openai_request_id: response._request_id ?? undefined, error_type: 'local_validation' });
-      throw new AiProviderError('image_extraction', undefined, usage);
+      throw new AiProviderError('image_extraction', undefined, usage, promptUsage);
     }
-    return { data: { cards }, usage };
+    return { data: { cards }, usage, promptUsage };
   }
 }
