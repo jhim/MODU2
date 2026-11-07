@@ -21,6 +21,18 @@ type User = { id: string; email?: string };
 type Deps = { ai: AiService; repository: LearningRepository; promptRepository?: PromptRepository; adminUserIds?: string[]; enableTestRoutes?: boolean; allowAnonymousPersistence?: boolean; verifyAccessToken?: LearningRepository["verifyAccessToken"]; aiUsageSessionSecret?: string };
 function uploadError(res: Response, message: string, status = 400) { return res.status(status).json({ error: message }); }
 function isBuffer(value: unknown): value is Buffer { return Buffer.isBuffer(value); }
+function safeErrorDiagnostics(error: unknown): Record<string, string | number> {
+  if (!error || typeof error !== 'object') return {};
+  const value = error as Record<string, unknown>;
+  const diagnostics: Record<string, string | number> = {};
+  // Supabase/Postgres codes are stable, useful for diagnosis, and do not contain row data.
+  if (typeof value.code === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value.code)) diagnostics.error_code = value.code;
+  const status = value.status ?? value.statusCode;
+  if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) diagnostics.upstream_status = status;
+  if (error instanceof Error && /^[A-Za-z][A-Za-z0-9_.]{0,79}$/.test(error.name)) diagnostics.error_name = error.name;
+  else if (typeof value.name === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,79}$/.test(value.name)) diagnostics.error_name = value.name;
+  return diagnostics;
+}
 function validImage(bytes: Buffer, type: string): type is 'image/jpeg' | 'image/png' | 'image/webp' {
   if (type === 'image/jpeg') return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
   if (type === 'image/png') return bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a';
@@ -491,7 +503,7 @@ export function createApp(deps: Deps) {
   const clientDist = path.resolve(process.cwd(), 'public');
   app.use(express.static(clientDist));
   app.get('*path', (_req, res, next) => res.sendFile(path.join(clientDist, 'index.html'), error => { if (error) next(error); }));
-  const errors: ErrorRequestHandler = (error, _req, res, _next) => {
+  const errors: ErrorRequestHandler = (error, req, res, _next) => {
     const id = res.locals.requestId;
     const status = errorStatus(error);
     if (status && status >= 400 && status < 500) return res.status(status).json({ error: status === 413 ? "업로드 파일이 허용된 크기를 초과했습니다." : "요청 내용을 확인해 주세요.", request_id: id });
@@ -499,13 +511,15 @@ export function createApp(deps: Deps) {
     if (status === 404) return res.status(404).json({ error: '수정할 수 있는 콘텐츠를 찾을 수 없습니다.' });
     if (status === 409) return res.status(409).json({ error: '다른 변경 사항이 저장되었습니다. 새로고침 후 다시 시도해 주세요.' });
     if (error instanceof AiProviderError) {
-      logMetric('api_error', { request_id: id, error_type: error.name, upstream_status: error.upstreamStatus });
+      logMetric('api_error', { request_id: id, method: req.method, route: req.path, operation: error.operation,
+        error_type: error.name, upstream_status: error.upstreamStatus, ...safeErrorDiagnostics(error) });
       const message = error.operation === 'suggestions' ? 'AI 주제 추천을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'
         : error.operation === 'image_extraction' ? '사진을 읽지 못했습니다. 글자가 선명한 사진으로 다시 시도해 주세요.'
           : '학습 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.';
       return res.status(503).json({ error: message, request_id: id });
     }
-    logMetric('api_error', { request_id: id, error_type: error instanceof Error ? error.name : 'unknown' });
+    logMetric('api_error', { request_id: id, method: req.method, route: req.path, response_status: 500,
+      error_type: error instanceof Error ? error.name : 'unknown', ...safeErrorDiagnostics(error) });
     res.status(500).json({ error: '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.', request_id: id });
   };
   app.use(errors);

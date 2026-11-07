@@ -15,6 +15,34 @@ beforeAll(async () => { server = app.listen(0); await new Promise<void>(resolve 
 afterAll(async () => { await new Promise<void>(resolve => server.close(() => resolve())); });
 
 describe('MODU2 API', () => {
+  it('logs safe diagnostics for non-Error database failures without logging error text', async () => {
+    const repositoryWithDbFailure = Object.assign(new MemoryLearningRepository(), {
+      listContent: vi.fn().mockRejectedValue({
+        code: 'PGRST202', statusCode: 400, message: 'private database details', details: 'sensitive row value', hint: 'private hint',
+      }),
+    });
+    const diagnosticApp = createApp({ ai: new MockAiService(), repository: repositoryWithDbFailure });
+    const diagnosticServer = diagnosticApp.listen(0);
+    await new Promise<void>(resolve => diagnosticServer.once('listening', resolve));
+    const url = `http://127.0.0.1:${(diagnosticServer.address() as any).port}`;
+    const log = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      const response = await fetch(`${url}/api/learning-sets`);
+      const body = await response.json();
+      expect(response.status).toBe(500);
+      expect(body).toMatchObject({ request_id: expect.any(String) });
+      const entries = log.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+      const entry = entries.find(value => value.event === 'api_error');
+      expect(entry).toMatchObject({ method: 'GET', route: '/api/learning-sets', response_status: 500,
+        error_type: 'unknown', error_code: 'PGRST202', upstream_status: 400 });
+      expect(entry?.request_id).toBe(body.request_id);
+      expect(JSON.stringify(entries)).not.toMatch(/private database details|sensitive row value|private hint/);
+    } finally {
+      log.mockRestore();
+      await new Promise<void>(resolve => diagnosticServer.close(() => resolve()));
+    }
+  });
+
   it('searches only stored completed content and does not call AI', async () => {
     const aiSpy = vi.spyOn(ai, 'suggest');
     const seed = await fetch(`${baseUrl}/api/test/seed`, { method: 'POST' }).then(r => r.json());
