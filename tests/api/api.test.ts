@@ -18,7 +18,7 @@ describe('MODU2 API', () => {
   it('logs safe diagnostics for non-Error database failures without logging error text', async () => {
     const repositoryWithDbFailure = Object.assign(new MemoryLearningRepository(), {
       listContent: vi.fn().mockRejectedValue({
-        code: null, statusCode: 400, message: 'Could not find function public.list_learning_sets in the schema cache',
+        code: null, statusCode: 400, message: 'column "private-column" does not exist for card "private card"',
         details: 'sensitive row value', hint: 'private hint',
       }),
     });
@@ -36,9 +36,9 @@ describe('MODU2 API', () => {
       const entry = entries.find(value => value.event === 'api_error');
       expect(entry).toMatchObject({ method: 'GET', route: '/api/learning-sets', response_status: 500,
         error_type: 'unknown', error_shape: 'object', error_fields: 'code,statusCode,message,details,hint',
-        error_code_type: 'null', error_message_class: 'schema_function_cache_miss', upstream_status: 400 });
+        error_code_type: 'null', error_message_class: 'missing_column', error_message: 'column [redacted] does not exist for card [redacted]', upstream_status: 400 });
       expect(entry?.request_id).toBe(body.request_id);
-      expect(JSON.stringify(entries)).not.toMatch(/Could not find function|sensitive row value|private hint/);
+      expect(JSON.stringify(entries)).not.toMatch(/private-column|private card|sensitive row value|private hint/);
     } finally {
       log.mockRestore();
       await new Promise<void>(resolve => diagnosticServer.close(() => resolve()));

@@ -39,7 +39,20 @@ function classifySafeErrorMessage(message: unknown): string | undefined {
   if (normalized.includes('invalid input syntax')) return 'invalid_input';
   return 'other';
 }
-function safeErrorDiagnostics(error: unknown): Record<string, string | number> {
+function redactDatabaseErrorMessage(message: unknown): string | undefined {
+  if (typeof message !== 'string') return undefined;
+  const redacted = message
+    .replace(/bearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/\b(?:sk|pk|sb_secret|eyJ)[A-Za-z0-9_-]{12,}\b/gi, '[redacted-token]')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[redacted-id]')
+    .replace(/https?:\/\/[^\s"'<>]+/gi, '[redacted-url]')
+    .replace(/["'][^"']*["']/g, '[redacted]')
+    .replace(/\s+/g, ' ')
+    .slice(0, 240);
+  return redacted || undefined;
+}
+function safeErrorDiagnostics(error: unknown, includeMessage = false): Record<string, string | number> {
   if (!error || typeof error !== 'object') return {};
   const value = error as Record<string, unknown>;
   const diagnostics: Record<string, string | number> = {};
@@ -51,6 +64,10 @@ function safeErrorDiagnostics(error: unknown): Record<string, string | number> {
   }
   const messageClass = classifySafeErrorMessage(value.message);
   if (messageClass) diagnostics.error_message_class = messageClass;
+  if (includeMessage) {
+    const safeMessage = redactDatabaseErrorMessage(value.message);
+    if (safeMessage) diagnostics.error_message = safeMessage;
+  }
   // Supabase/Postgres codes are stable, useful for diagnosis, and do not contain row data.
   if (typeof value.code === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value.code)) diagnostics.error_code = value.code;
   const status = value.status ?? value.statusCode;
@@ -545,7 +562,8 @@ export function createApp(deps: Deps) {
       return res.status(503).json({ error: message, request_id: id });
     }
     logMetric('api_error', { request_id: id, method: req.method, route: req.path, response_status: 500,
-      error_type: error instanceof Error ? error.name : 'unknown', ...safeErrorDiagnostics(error) });
+      error_type: error instanceof Error ? error.name : 'unknown',
+      ...safeErrorDiagnostics(error, req.path === '/api/learning-sets') });
     res.status(500).json({ error: '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.', request_id: id });
   };
   app.use(errors);
