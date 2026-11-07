@@ -6,6 +6,37 @@ import type { AiPromptUsage } from '../services/ai.js';
 import type { ActivePrompt, PromptKey, PromptTemplate } from '../prompts/templates.js';
 import type { PromptAuditRecord, PromptRepository, PromptTemplateRecord, PromptVersion } from '../prompts/repository.js';
 
+function safeNetworkFailureFields(error: unknown): Record<string, string | number> {
+  if (!error || typeof error !== 'object') return {};
+  const outer = error as Record<string, unknown>;
+  const cause = outer.cause && typeof outer.cause === 'object' ? outer.cause as Record<string, unknown> : outer;
+  const result: Record<string, string | number> = {};
+  if (typeof outer.name === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,79}$/.test(outer.name)) result.error_name = outer.name;
+  if (typeof cause.name === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,79}$/.test(cause.name)) result.cause_name = cause.name;
+  if (typeof cause.code === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(cause.code)) result.cause_code = cause.code;
+  if (typeof cause.errno === 'number' && Number.isInteger(cause.errno)) result.cause_errno = cause.errno;
+  else if (typeof cause.errno === 'string' && /^-?\d{1,8}$/.test(cause.errno)) result.cause_errno = cause.errno;
+  if (typeof cause.syscall === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(cause.syscall)) result.cause_syscall = cause.syscall;
+  return result;
+}
+export function createSupabaseDiagnosticFetch(baseFetch: typeof fetch = fetch): typeof fetch {
+  return async (input, init) => {
+    let isLearningSetList = false;
+    try {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      isLearningSetList = new URL(url).pathname.endsWith('/rest/v1/rpc/list_learning_sets');
+    } catch { /* Keep diagnostics disabled if the request URL cannot be safely parsed. */ }
+    try {
+      return await baseFetch(input, init);
+    } catch (error) {
+      if (isLearningSetList) {
+        console.info(JSON.stringify({ event: 'supabase_network_error', operation: 'list_learning_sets',
+          ...safeNetworkFailureFields(error) }));
+      }
+      throw error;
+    }
+  };
+}
 export function toFlashcardRpcPayload(cards: Flashcard[]) {
   return cards.map((card, index) => ({ key_text: card.key, values: card.values, sort_order: index + 1 }));
 }
@@ -19,7 +50,9 @@ function one<T>(data: any): T {
 export class SupabaseLearningRepository implements LearningRepository, PromptRepository {
   private constructor(private readonly db: SupabaseClient) {}
   static fromEnv(url: string, key: string): SupabaseLearningRepository {
-    return new SupabaseLearningRepository(createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }));
+    return new SupabaseLearningRepository(createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: createSupabaseDiagnosticFetch() },
+    }));
   }
   async verifyAccessToken(token: string) {
     const { data, error } = await this.db.auth.getUser(token);
