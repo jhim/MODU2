@@ -172,7 +172,7 @@ export function createApp(deps: Deps) {
     };
     const validation = validatePromptTemplate(key, prompt);
     if (!validation.valid) return res.status(400).json({ error: '템플릿 변수를 확인해 주세요.', validation });
-    try { return res.json({ version: stripPromptActorIds(await promptRepo.updatePromptDraft(key, routeParam(req.params.versionId), (res.locals.user as User).id, validation.value!, change_note)) }); }
+    try { return res.json({ version: stripPromptActorIds(await promptRepo.updatePromptDraft(key, routeParam(req.params.versionId), (res.locals.user as User).id, prompt, change_note)) }); }
     catch (error) { return next(error); }
   });
   app.post('/api/admin/prompts/:promptKey/drafts/:versionId/validate', requireAdmin, async (req, res) => {
