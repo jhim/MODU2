@@ -14,7 +14,7 @@ import { createEphemeralAiUsageSecret, issueAiUsageSession, verifyAiUsageSession
 import type { LearningRepository } from './repositories/types.js';
 import { logMetric, requestId as newRequestId } from './lib/metrics.js';
 import { isPromptKey, type PromptRepository } from './prompts/repository.js';
-import { validatePromptTemplate } from './prompts/templates.js';
+import { validatePromptTemplate, type PromptTemplate } from './prompts/templates.js';
 import { buildRuntimePromptMessages, loadRuntimePrompt, promptVersionTemplate } from './prompts/runtime.js';
 
 type User = { id: string; email?: string };
@@ -164,7 +164,12 @@ export function createApp(deps: Deps) {
     if (!promptRepo) return res.status(503).json({ error: '프롬프트 저장소를 사용할 수 없습니다.' });
     const parsed = promptBodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: '프롬프트 내용을 확인해 주세요.' });
-    const { change_note, ...prompt } = parsed.data;
+    const change_note = parsed.data.change_note ?? '';
+    const prompt: PromptTemplate = {
+      system_prompt: parsed.data.system_prompt!,
+      developer_prompt: parsed.data.developer_prompt!,
+      user_template: parsed.data.user_template!,
+    };
     const validation = validatePromptTemplate(key, prompt);
     if (!validation.valid) return res.status(400).json({ error: '템플릿 변수를 확인해 주세요.', validation });
     try { return res.json({ version: stripPromptActorIds(await promptRepo.updatePromptDraft(key, routeParam(req.params.versionId), (res.locals.user as User).id, validation.value!, change_note)) }); }
@@ -174,7 +179,11 @@ export function createApp(deps: Deps) {
     const key = promptKeyParam(req, res); if (!key) return;
     const parsed = promptBodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ valid: false, errors: parsed.error.issues.map(issue => issue.message) });
-    const { change_note: _note, ...prompt } = parsed.data;
+    const prompt: PromptTemplate = {
+      system_prompt: parsed.data.system_prompt!,
+      developer_prompt: parsed.data.developer_prompt!,
+      user_template: parsed.data.user_template!,
+    };
     return res.json(validatePromptTemplate(key, prompt));
   });
   app.post('/api/admin/prompts/:promptKey/versions/:versionId/activate', requireAdmin, async (req, res, next) => {
@@ -240,7 +249,13 @@ export function createApp(deps: Deps) {
       const parsed = SuggestionRequestSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: '학습 요청을 확인해 주세요.' });
       usageOwnerId = (await resolveUser(req, deps.repository, verifyToken))?.id;
-      const { ai_usage_session_id: suppliedSessionId, ai_usage_session_token: suppliedToken, ...suggestionInput } = parsed.data;
+      const suppliedSessionId = parsed.data.ai_usage_session_id;
+      const suppliedToken = parsed.data.ai_usage_session_token;
+      const suggestionInput = {
+        original_request: parsed.data.original_request!,
+        refinement_request: parsed.data.refinement_request ?? '',
+        previous_suggestions: parsed.data.previous_suggestions ?? [],
+      };
       const usageSession = resolveAiUsageSession(suppliedSessionId, suppliedToken, aiUsageSessionSecret);
       sessionId = usageSession.id;
       if (usageOwnerId) await deps.repository.claimAiUsageSession(sessionId, usageOwnerId);
