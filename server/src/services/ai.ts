@@ -201,7 +201,7 @@ export class OpenAiService implements AiService {
       throw new AiProviderError('suggestions', undefined, usage, promptUsage);
     }
   }
-  async generate(input: CreateSetRequest, id: string) {
+  async generate(input: CreateSetRequest, id: string): Promise<AiCallResult<{ title: string; cards: { key: string; values: string[] }[] }>> {
     const started = performance.now();
     const promptSnapshot = await loadRuntimePrompt(this.promptRepository, 'FLASHCARD', id);
     const promptUsage: AiPromptUsage = { promptKey: 'FLASHCARD', ...(promptSnapshot.versionId ? { versionId: promptSnapshot.versionId } : {}),
