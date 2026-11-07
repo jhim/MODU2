@@ -79,9 +79,9 @@ function resolveAiUsageSession(id: string | undefined, token: string | undefined
 }
 
 export function getTrustProxySetting(env: NodeJS.ProcessEnv = process.env): number | false {
-  const railwayProduction = env.MODU2_MODE === 'production'
-    && Boolean(env.RAILWAY_ENVIRONMENT_NAME || env.RAILWAY_ENVIRONMENT_ID || env.RAILWAY_ENVIRONMENT);
-  return railwayProduction ? 1 : false;
+  const productionProxy = env.MODU2_MODE === 'production'
+    && (env.VERCEL === '1' || Boolean(env.RAILWAY_ENVIRONMENT_NAME || env.RAILWAY_ENVIRONMENT_ID || env.RAILWAY_ENVIRONMENT));
+  return productionProxy ? 1 : false;
 }
 
 export function createApp(deps: Deps) {
@@ -473,7 +473,7 @@ export function createApp(deps: Deps) {
     });
   }
 
-  const clientDist = path.resolve(process.cwd(), 'dist/client');
+  const clientDist = path.resolve(process.cwd(), 'public');
   app.use(express.static(clientDist));
   app.get('*path', (_req, res, next) => res.sendFile(path.join(clientDist, 'index.html'), error => { if (error) next(error); }));
   const errors: ErrorRequestHandler = (error, _req, res, _next) => {

@@ -4,7 +4,6 @@ import path from 'node:path';
 import { mockAuthServer } from './mock-auth.mjs';
 
 const baseUrl = 'http://127.0.0.1:3000';
-const authUrl = 'http://127.0.0.1:3001';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 const args = process.argv.slice(2);
@@ -36,10 +35,10 @@ async function runGroup(label, specs, withMockAuth) {
     ...process.env,
     MODU2_MODE: 'mock',
     NODE_ENV: 'test',
-    SUPABASE_URL: withMockAuth ? authUrl : '',
-    SUPABASE_ANON_KEY: withMockAuth ? 'e2e-anon-key' : '',
-    VITE_SUPABASE_URL: withMockAuth ? authUrl : '',
-    VITE_SUPABASE_ANON_KEY: withMockAuth ? 'e2e-anon-key' : '',
+    SUPABASE_URL: '',
+    SUPABASE_ANON_KEY: '',
+    VITE_SUPABASE_URL: '',
+    VITE_SUPABASE_ANON_KEY: '',
   };
   let authListening = false;
   let server;
@@ -49,9 +48,16 @@ async function runGroup(label, specs, withMockAuth) {
     if (withMockAuth) {
       await new Promise((resolve, reject) => {
         mockAuthServer.once('error', reject);
-        mockAuthServer.listen(3001, '127.0.0.1', resolve);
+        mockAuthServer.listen(0, '127.0.0.1', resolve);
       });
       authListening = true;
+      const address = mockAuthServer.address();
+      if (!address || typeof address === 'string') throw new Error('Mock Auth server address is unavailable.');
+      const authUrl = `http://127.0.0.1:${address.port}`;
+      env.SUPABASE_URL = authUrl;
+      env.SUPABASE_ANON_KEY = 'e2e-anon-key';
+      env.VITE_SUPABASE_URL = authUrl;
+      env.VITE_SUPABASE_ANON_KEY = 'e2e-anon-key';
     }
 
     console.log(`\n[E2E] ${label}: building with ${withMockAuth ? 'Mock Auth enabled' : 'Auth disabled'}`);

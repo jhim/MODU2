@@ -9,11 +9,12 @@ import type { PromptRepository } from './prompts/repository.js';
 import { MemoryPromptRepository } from './prompts/memory-repository.js';
 import { parseAdminUserIds } from './config/admin-user-ids.js';
 
+export function createConfiguredApp() {
 const mode = process.env.MODU2_MODE;
 const railwayRuntime = Boolean(process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT_ID || process.env.RAILWAY_ENVIRONMENT);
-const productionRuntime = process.env.NODE_ENV === 'production' || railwayRuntime;
+const productionRuntime = process.env.NODE_ENV === 'production' || railwayRuntime || process.env.VERCEL === '1';
 if (mode !== 'mock' && mode !== 'production') throw new Error('MODU2_MODE must be explicitly set to "mock" or "production".');
-if (productionRuntime && mode !== 'production') throw new Error('MODU2_MODE=production is required in Railway and production environments.');
+if (productionRuntime && mode !== 'production') throw new Error('MODU2_MODE=production is required in production environments.');
 const adminUserIds = parseAdminUserIds(process.env.MODU2_ADMIN_USER_IDS, { required: mode === 'production' });
 
 let repository: LearningRepository;
@@ -44,5 +45,13 @@ if (mode === 'mock') {
 }
 const app = createApp({ ai, repository, promptRepository, adminUserIds, verifyAccessToken, aiUsageSessionSecret: process.env.SUPABASE_SERVICE_ROLE_KEY,
   enableTestRoutes: mode === 'mock' && process.env.NODE_ENV === 'test' });
-const port = Number(process.env.PORT || 3000);
-app.listen(port, '0.0.0.0', () => console.info('MODU2 listening on 0.0.0.0:' + port));
+return app;
+}
+
+const app = createConfiguredApp();
+if (process.env.VERCEL !== '1') {
+  const port = Number(process.env.PORT || 3000);
+  app.listen(port, '0.0.0.0', () => console.info('MODU2 listening on 0.0.0.0:' + port));
+}
+
+export default app;

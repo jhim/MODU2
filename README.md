@@ -12,6 +12,14 @@ npm run dev
 
 `.env`의 `MODU2_MODE=mock`을 사용하세요. 서버는 기본적으로 `3000` 포트, Vite는 `5173` 포트에서 실행됩니다. Vite가 `/api` 요청을 로컬 API로 프록시합니다. 메모리 DB의 데이터는 서버가 재시작되면 사라집니다.
 
+## Vercel 배포
+
+Vercel 프로젝트의 Root Directory는 저장소 루트로 설정합니다. Express 진입점은 `src/index.ts`이며, 빌드된 Vite 정적 파일은 `public/`에 생성됩니다. Express 앱과 `/api/*` 경로는 Vercel Functions로 동작합니다. `public/`은 빌드 산출물이므로 Git에 커밋하지 않습니다.
+
+운영 환경에는 `MODU2_MODE=production`, `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `MODU2_ADMIN_USER_IDS`가 필요합니다. 브라우저 Auth에는 기존 `NEXT_PUBLIC_SUPABASE_URL`과 `NEXT_PUBLIC_SUPABASE_ANON_KEY`를 사용하거나 `VITE_SUPABASE_URL`과 `VITE_SUPABASE_ANON_KEY`를 설정합니다. 관리자 allowlist에는 Supabase Auth 사용자 UUID를 입력하세요. 서비스 역할 키와 OpenAI 키는 서버 전용으로 두고 `NEXT_PUBLIC_` 또는 `VITE_` 이름을 사용하지 마세요.
+
+이 앱의 Auth와 데이터는 Supabase를 계속 사용합니다. Vercel에 연결된 Firebase는 MODU2 코드에서 사용하지 않습니다. Vercel Functions의 요청 본문 한도는 4.5 MB이므로 사진·Excel 업로드는 그보다 작은 파일만 전송할 수 있습니다.
+
 ## 운영 환경변수
 
 Railway 서비스의 Variables에서 설정합니다. Railway가 `PORT`를 주입하므로 포트를 직접 설정하지 마세요.

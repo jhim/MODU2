@@ -41,6 +41,8 @@ describe('MODU2 API', () => {
   });
   it('trusts exactly one Railway ingress hop and leaves local mock untrusted', () => {
     expect(getTrustProxySetting({ MODU2_MODE: 'production', RAILWAY_ENVIRONMENT_NAME: 'production' } as NodeJS.ProcessEnv)).toBe(1);
+    expect(getTrustProxySetting({ MODU2_MODE: 'production', VERCEL: '1' } as NodeJS.ProcessEnv)).toBe(1);
+    expect(getTrustProxySetting({ MODU2_MODE: 'production', VERCEL: '1', RAILWAY_ENVIRONMENT_NAME: 'production' } as NodeJS.ProcessEnv)).toBe(1);
     expect(getTrustProxySetting({ MODU2_MODE: 'mock', RAILWAY_ENVIRONMENT_NAME: 'production' } as NodeJS.ProcessEnv)).toBe(false);
     expect(getTrustProxySetting({ MODU2_MODE: 'mock', NODE_ENV: 'development' } as NodeJS.ProcessEnv)).toBe(false);
   });

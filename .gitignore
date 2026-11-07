@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-server/
+public/
 coverage/
 playwright-report/
 test-results/
