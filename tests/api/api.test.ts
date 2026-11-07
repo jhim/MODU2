@@ -34,7 +34,8 @@ describe('MODU2 API', () => {
       const entries = log.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
       const entry = entries.find(value => value.event === 'api_error');
       expect(entry).toMatchObject({ method: 'GET', route: '/api/learning-sets', response_status: 500,
-        error_type: 'unknown', error_code: 'PGRST202', upstream_status: 400 });
+        error_type: 'unknown', error_shape: 'object', error_fields: 'code,statusCode,message,details,hint',
+        error_code: 'PGRST202', upstream_status: 400 });
       expect(entry?.request_id).toBe(body.request_id);
       expect(JSON.stringify(entries)).not.toMatch(/private database details|sensitive row value|private hint/);
     } finally {

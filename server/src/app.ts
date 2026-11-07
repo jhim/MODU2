@@ -25,6 +25,9 @@ function safeErrorDiagnostics(error: unknown): Record<string, string | number> {
   if (!error || typeof error !== 'object') return {};
   const value = error as Record<string, unknown>;
   const diagnostics: Record<string, string | number> = {};
+  diagnostics.error_shape = Array.isArray(error) ? 'array' : 'object';
+  const fields = Object.keys(value).filter(key => /^[A-Za-z][A-Za-z0-9_]{0,31}$/.test(key)).slice(0, 12);
+  if (fields.length) diagnostics.error_fields = fields.join(',');
   // Supabase/Postgres codes are stable, useful for diagnosis, and do not contain row data.
   if (typeof value.code === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value.code)) diagnostics.error_code = value.code;
   const status = value.status ?? value.statusCode;
