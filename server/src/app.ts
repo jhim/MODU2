@@ -21,11 +21,36 @@ type User = { id: string; email?: string };
 type Deps = { ai: AiService; repository: LearningRepository; promptRepository?: PromptRepository; adminUserIds?: string[]; enableTestRoutes?: boolean; allowAnonymousPersistence?: boolean; verifyAccessToken?: LearningRepository["verifyAccessToken"]; aiUsageSessionSecret?: string };
 function uploadError(res: Response, message: string, status = 400) { return res.status(status).json({ error: message }); }
 function isBuffer(value: unknown): value is Buffer { return Buffer.isBuffer(value); }
+function classifySafeErrorMessage(message: unknown): string | undefined {
+  if (typeof message !== 'string') return undefined;
+  const normalized = message.toLowerCase();
+  if (normalized.includes('schema cache') && normalized.includes('function')) return 'schema_function_cache_miss';
+  if (normalized.includes('function') && normalized.includes('does not exist')) return 'missing_function';
+  if (normalized.includes('column') && normalized.includes('does not exist')) return 'missing_column';
+  if ((normalized.includes('relation') || normalized.includes('table')) && normalized.includes('does not exist')) return 'missing_relation';
+  if (normalized.includes('permission denied')) return 'permission_denied';
+  if (normalized.includes('invalid scope')) return 'invalid_scope';
+  if (normalized.includes('owner required')) return 'owner_required';
+  if (normalized.includes('timeout') || normalized.includes('timed out')) return 'timeout';
+  if (normalized.includes('duplicate key') || normalized.includes('unique constraint')) return 'unique_constraint';
+  if (normalized.includes('foreign key constraint')) return 'foreign_key_constraint';
+  if (normalized.includes('check constraint')) return 'check_constraint';
+  if (normalized.includes('not-null constraint')) return 'not_null_constraint';
+  if (normalized.includes('invalid input syntax')) return 'invalid_input';
+  return 'other';
+}
 function safeErrorDiagnostics(error: unknown): Record<string, string | number> {
   if (!error || typeof error !== 'object') return {};
   const value = error as Record<string, unknown>;
   const diagnostics: Record<string, string | number> = {};
   diagnostics.error_shape = Array.isArray(error) ? 'array' : 'object';
+  const fields = Object.keys(value).filter(key => /^[A-Za-z][A-Za-z0-9_]{0,31}$/.test(key)).slice(0, 12);
+  if (fields.length) diagnostics.error_fields = fields.join(',');
+  if (Object.hasOwn(value, 'code') && typeof value.code !== 'string') {
+    diagnostics.error_code_type = value.code === null ? 'null' : typeof value.code;
+  }
+  const messageClass = classifySafeErrorMessage(value.message);
+  if (messageClass) diagnostics.error_message_class = messageClass;
   const fields = Object.keys(value).filter(key => /^[A-Za-z][A-Za-z0-9_]{0,31}$/.test(key)).slice(0, 12);
   if (fields.length) diagnostics.error_fields = fields.join(',');
   // Supabase/Postgres codes are stable, useful for diagnosis, and do not contain row data.
